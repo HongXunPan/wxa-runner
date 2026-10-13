@@ -1,0 +1,28 @@
+<view class="container">
+  <view class="header">
+    <text class="title">{{message}}</text>
+  </view>
+
+  <view class="content">
+    <view class="counter">
+      <text class="count-text">点击次数: {{count}}</text>
+      <button class="btn" bindtap="handleTap">点击我 +1</button>
+    </view>
+
+    <view class="section">
+      <text class="section-title">UI 组件测试</text>
+      <button class="btn btn-success" bindtap="showToast">显示 Toast</button>
+      <button class="btn btn-primary" bindtap="showModal">显示 Modal</button>
+    </view>
+
+    <view class="section">
+      <text class="section-title">API 测试</text>
+      <button class="btn btn-warning" bindtap="testStorage">测试 Storage</button>
+      <button class="btn btn-info" bindtap="testSystemInfo">获取系统信息</button>
+    </view>
+  </view>
+
+  <view class="footer">
+    <text class="footer-text">Powered by wxa-runner</text>
+  </view>
+</view>

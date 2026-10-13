@@ -1,0 +1,5 @@
+<view class="card">
+  <text class="title">详情页</text>
+  <view id="detail-id">id = {{id}}</view>
+  <button id="btn-back" bindtap="back">navigateBack</button>
+</view>

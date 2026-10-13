@@ -1,0 +1,26 @@
+<wxs module="fmt" src="../../utils/format.wxs"></wxs>
+<view class="card">
+  <text class="title">基础渲染</text>
+  <text id="greeting">{{greeting}}</text>
+  <view id="price">价格：{{fmt.price(cents)}}</view>
+  <view id="visits">访问次数：{{visits}}</view>
+</view>
+<view class="card">
+  <text class="title">自定义组件</text>
+  <counter id="counter" label="组件计数" value="{{count}}" bind:change="onCounterChange" />
+  <view id="parent-count">父页面收到：{{count}}</view>
+</view>
+<view class="card">
+  <text class="title">列表与条件渲染</text>
+  <view wx:for="{{items}}" wx:key="id" class="item">{{index + 1}}. {{item.name}}</view>
+  <view wx:if="{{items.length > 2}}" id="many">共 {{items.length}} 项</view>
+</view>
+<view class="card">
+  <text class="title">API</text>
+  <button id="btn-request" bindtap="doRequest">wx.request</button>
+  <view id="request-result">{{requestResult}}</view>
+  <button id="btn-toast" bindtap="toast">wx.showToast</button>
+  <button id="btn-modal" bindtap="modal">wx.showModal</button>
+  <view id="modal-result">{{modalResult}}</view>
+  <button id="btn-detail" bindtap="goDetail">navigateTo 详情页</button>
+</view>

@@ -1,0 +1,17 @@
+{
+  "name": "@open-wxa/wxa-runner-extractor",
+  "version": "0.1.0",
+  "description": "Locate and extract the official WeChat mini-program base library from a local WeChat DevTools installation",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.2"
+  }
+}

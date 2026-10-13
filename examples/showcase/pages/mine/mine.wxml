@@ -1,0 +1,4 @@
+<view class="card">
+  <text class="title">我的</text>
+  <view id="mine-visits">首页访问次数：{{visits}}</view>
+</view>

@@ -1,0 +1,178 @@
+/**
+ * 不依赖 DOM 的原生 API 实现
+ */
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
+import { createNetworkApis } from '../../packages/core/src/runtime/host/api/network';
+import { ApiHandler } from '../../packages/core/src/runtime/host/api/registry';
+import { createSystemApis } from '../../packages/core/src/runtime/host/api/system';
+import { createUiApis } from '../../packages/core/src/runtime/host/api/ui';
+import type { PhoneShell } from '../../packages/core/src/runtime/host/ui/PhoneShell';
+
+const device = {
+  model: 'iPhone 6/7/8', screenWidth: 375, screenHeight: 667, pixelRatio: 2,
+  statusBarHeight: 20, system: 'iOS 16.0', platform: 'devtools'
+};
+
+const call = (apis: Record<string, ApiHandler>, api: string, args: object = {}) =>
+  apis[api](args, { api, from: 'service', webviewId: 1 }) as any;
+
+describe('系统信息', () => {
+  const apis = createSystemApis({ device, baseLibVersion: '3.7.0', windowHeight: () => 553 });
+
+  it('getSystemInfo 合并设备、窗口和基础库信息', () => {
+    expect(call(apis, 'getSystemInfoSync')).toMatchObject({
+      model: 'iPhone 6/7/8', screenWidth: 375, windowWidth: 375, windowHeight: 553,
+      statusBarHeight: 20, SDKVersion: '3.7.0', platform: 'devtools', errMsg: 'getSystemInfoSync:ok'
+    });
+  });
+
+  it('带 type 参数时只返回对应部分（基础库的 getWindowInfo 等走这条路）', () => {
+    const windowInfo = call(apis, 'getSystemInfo', { type: 'windowInfo' });
+    expect(windowInfo).toMatchObject({ windowHeight: 553, pixelRatio: 2 });
+    expect(windowInfo.model).toBeUndefined();
+    expect(call(apis, 'getSystemInfo', { type: 'appBaseInfo' })).toMatchObject({ SDKVersion: '3.7.0' });
+  });
+
+  it('胶囊按钮位置按状态栏高度计算', () => {
+    expect(call(apis, 'getMenuButtonBoundingClientRect')).toMatchObject({ top: 26, right: 368, width: 87, height: 32 });
+  });
+});
+
+describe('界面 API', () => {
+  const shell = {
+    showToast: vi.fn(),
+    hideToast: vi.fn(),
+    showModal: vi.fn(async () => ({ confirm: true, cancel: false })),
+    showActionSheet: vi.fn(async () => null as number | null),
+    setNavigationLoading: vi.fn()
+  };
+  const updateNavigation = vi.fn();
+  const apis = createUiApis({ shell: shell as unknown as PhoneShell, updateNavigation });
+
+  it('showLoading 是不会自动消失的 loading toast', () => {
+    call(apis, 'showLoading', { title: '加载中' });
+    expect(shell.showToast).toHaveBeenCalledWith({ title: '加载中', icon: 'loading', duration: 0 });
+  });
+
+  it('showModal 等待用户选择后返回结果', async () => {
+    await expect(call(apis, 'showModal', { title: 't' })).resolves.toEqual({ confirm: true, cancel: false, errMsg: 'showModal:ok' });
+  });
+
+  it('取消 actionSheet 返回 fail cancel', async () => {
+    await expect(call(apis, 'showActionSheet', { itemList: ['a'] })).resolves.toEqual({ errMsg: 'showActionSheet:fail cancel' });
+    shell.showActionSheet.mockResolvedValueOnce(1);
+    await expect(call(apis, 'showActionSheet', { itemList: ['a', 'b'] })).resolves.toMatchObject({ tapIndex: 1 });
+  });
+
+  it('导航栏颜色：frontColor 换算为文字样式', () => {
+    call(apis, 'setNavigationBarColor', { frontColor: '#000000', backgroundColor: '#ffffff' });
+    expect(updateNavigation).toHaveBeenLastCalledWith({ backgroundColor: '#ffffff', textStyle: 'black' });
+    call(apis, 'setNavigationBarTitle', { title: '新标题' });
+    expect(updateNavigation).toHaveBeenLastCalledWith({ title: '新标题' });
+  });
+});
+
+describe('网络 API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  function setup(response: () => Promise<Response>) {
+    const events: Array<[string, any]> = [];
+    const fetchMock = vi.fn(async (..._args: unknown[]) => response());
+    vi.stubGlobal('fetch', fetchMock);
+    const apis = createNetworkApis({ emit: (event, data) => events.push([event, data]), defaultTimeout: () => 60000 });
+    return { apis, events, fetchMock };
+  }
+
+  const proxied = (body: string, status = 200, header: object = { 'content-type': 'text/plain' }) => async () =>
+    new Response(body, {
+      status,
+      headers: {
+        'x-wxa-headers': encodeURIComponent(JSON.stringify(header)),
+        'x-wxa-set-cookie': encodeURIComponent(JSON.stringify(['a=1']))
+      }
+    });
+
+  it('同步返回 requestTaskId，随后依次推送 headersReceived 和 success', async () => {
+    const { apis, events, fetchMock } = setup(proxied('{"ok":1}', 201));
+    const result = call(apis, 'createRequestTask', { url: 'https://api.example.com/x?y=1', method: 'post', data: 'a=1', header: { cookie: 'c=1' } });
+    expect(result.errMsg).toBe('createRequestTask:ok');
+    expect(events).toEqual([]);
+
+    await vi.waitFor(() => expect(events.length).toBe(2));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/__wxa__/proxy?url=' + encodeURIComponent('https://api.example.com/x?y=1'));
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('a=1');
+    expect(JSON.parse((init.headers as Record<string, string>)['x-wxa-headers'])).toEqual({ cookie: 'c=1' });
+
+    expect(events[0]).toEqual(['onRequestTaskStateChange', expect.objectContaining({ state: 'headersReceived', statusCode: 201, cookies: ['a=1'] })]);
+    expect(events[1]).toEqual(['onRequestTaskStateChange', expect.objectContaining({
+      requestTaskId: result.requestTaskId, state: 'success', data: '{"ok":1}', statusCode: 201, header: { 'content-type': 'text/plain' }
+    })]);
+  });
+
+  it('GET 请求不带请求体', async () => {
+    const { apis, fetchMock } = setup(proxied(''));
+    call(apis, 'createRequestTask', { url: 'https://a.com', data: 'ignored' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].body).toBeUndefined();
+  });
+
+  it('代理报错或地址非法时推送 fail', async () => {
+    const { apis, events } = setup(async () => new Response('ECONNREFUSED', { status: 502, headers: { 'x-wxa-proxy-error': '1' } }));
+    call(apis, 'createRequestTask', { url: 'https://down.example.com' });
+    call(apis, 'createRequestTask', { url: 'relative/path' });
+    await vi.waitFor(() => expect(events.length).toBe(2));
+    expect(events.map(([, data]) => data.errMsg).sort()).toEqual([
+      'request:fail ECONNREFUSED',
+      'request:fail invalid url "relative/path"'
+    ]);
+  });
+
+  it('abort 后推送 request:fail abort', async () => {
+    const { apis, events } = setup(() => new Promise((_resolve, reject) => {
+      setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 20);
+    }));
+    const { requestTaskId } = call(apis, 'createRequestTask', { url: 'https://slow.example.com' });
+    await flush();
+    call(apis, 'operateRequestTask', { requestTaskId, operationType: 'abort' });
+    await vi.waitFor(() => expect(events.length).toBe(1));
+    expect(events[0][1]).toMatchObject({ state: 'fail' });
+  });
+
+  it('downloadFile 把响应保存为 blob URL', async () => {
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:mock' }));
+    const { apis, events } = setup(proxied('file-content'));
+    const { downloadTaskId } = call(apis, 'createDownloadTask', { url: 'https://cdn.example.com/a.png' });
+    await vi.waitFor(() => expect(events.some(([, d]) => d.state === 'success')).toBe(true));
+    expect(events.at(-1)).toEqual(['onDownloadTaskStateChange', expect.objectContaining({
+      downloadTaskId, state: 'success', tempFilePath: 'blob:mock', statusCode: 200
+    })]);
+  });
+});
+
+describe('其它 API', () => {
+  const apis = createMiscApis('wx1');
+
+  it('文件系统 API 与基础库的调用格式一致', () => {
+    expect(call(apis, 'access', { path: 'http://usr/x' }).errMsg).toMatch(/^access:fail no such file/);
+    expect(call(apis, 'mkdir', { dirPath: 'http://usr/logs', recursive: true }).errMsg).toBe('mkdir:ok');
+    call(apis, 'writeFile', { filePath: 'http://usr/logs/1.log', data: 'hello' });
+    expect(call(apis, 'readFileSync', { filePath: 'http://usr/logs/1.log' })).toMatchObject({ data: 'hello' });
+    expect(call(apis, 'stat', { path: 'http://usr/logs/1.log' }).stats).toMatchObject({ size: 5 });
+    expect(call(apis, 'readdir', { dirPath: 'http://usr/logs' }).files).toEqual(['1.log']);
+  });
+
+  it('开放接口返回可预测的模拟数据，支付明确失败', () => {
+    expect(call(apis, 'login').code).toMatch(/^wxa_mock_code_/);
+    expect(call(apis, 'getAccountInfoSync').miniProgram.appId).toBe('wx1');
+    expect(call(apis, 'requestPayment').errMsg).toMatch(/^requestPayment:fail /);
+  });
+});

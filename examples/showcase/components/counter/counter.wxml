@@ -1,0 +1,4 @@
+<view class="counter">
+  <text class="label">{{label}}: {{value}}</text>
+  <button id="counter-inc" size="mini" bindtap="increase">+1</button>
+</view>

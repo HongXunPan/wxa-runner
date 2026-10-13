@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest';
+import { compileWxml } from '../../packages/compiler/src/wcc';
+import { compileWxss, parseWcscOutput, unescapeJsString } from '../../packages/compiler/src/wcsc';
+import { createProject, hasDevtools } from '../helpers';
+
+describe('wcsc 输出解析', () => {
+  it('把 key=value 交替的输出拆成对象，并还原转义', () => {
+    const output = 'version=v0.4=comm=var a \\x3d 1;\\nvar b\\x3d\\x22x\\x22=./pages/a.wxss=setCssToHead([\\x22.a{}\\x22])';
+    expect(parseWcscOutput(output)).toEqual({
+      version: 'v0.4',
+      comm: 'var a = 1;\nvar b="x"',
+      './pages/a.wxss': 'setCssToHead([".a{}"])'
+    });
+  });
+
+  it('处理 \\u、\\\\ 和普通字符转义', () => {
+    expect(unescapeJsString('\\u4e2d\\\\\\\'\\t')).toBe('中\\\'\t');
+  });
+});
+
+describe.skipIf(!hasDevtools())('官方编译器', () => {
+  const root = createProject({
+    'pages/index/index.wxml': '<wxs module="m" src="../../utils/m.wxs"/><view class="a">{{m.twice(n)}}</view><counter/>',
+    'pages/index/index.wxss': '.a { padding: 20rpx; }',
+    'components/counter/counter.wxml': '<view>counter</view>',
+    'utils/m.wxs': 'module.exports = { twice: function (n) { return n * 2 } }',
+    'app.wxss': 'page { color: red; }'
+  });
+  const files = ['./pages/index/index.wxml', './components/counter/counter.wxml', './utils/m.wxs'];
+  const components = [{ path: 'pages/index/index', tags: ['counter'] }, { path: 'components/counter/counter', tags: [] }];
+
+  it('wxml 和 wxs 一起编译成一个 $gwx', async () => {
+    const code = await compileWxml({ cwd: root, files, components, cut: false });
+    expect(code).toContain('$gwx=function');
+    expect(code).toContain('./pages/index/index.wxml');
+    expect(code).toContain('twice');
+  });
+
+  it('逻辑层的裁剪版与渲染层版本不同', async () => {
+    const [full, cut] = await Promise.all([
+      compileWxml({ cwd: root, files, components, cut: false }),
+      compileWxml({ cwd: root, files, components, cut: true })
+    ]);
+    expect(cut).not.toBe(full);
+  });
+
+  it('wxml 语法错误时报告文件位置', async () => {
+    const broken = createProject({ 'a.wxml': '<view></vie>' });
+    await expect(compileWxml({ cwd: broken, files: ['./a.wxml'], components: [], cut: false }))
+      .rejects.toThrow(/a\.wxml:1:\d+/);
+  });
+
+  it('页面样式单独输出，app.wxss 进入公共部分', async () => {
+    const result = await compileWxss({ cwd: root, pageFiles: ['./pages/index/index.wxss'], commonFiles: ['./app.wxss'] });
+    expect(Object.keys(result.pages)).toEqual(['pages/index/index.wxss']);
+    expect(result.pages['pages/index/index.wxss']).toContain('setCssToHead');
+    expect(result.comm).toContain('color: red');
+  });
+
+  it('多次重复编译结果稳定（子进程方式不受原生模块崩溃影响）', async () => {
+    const results = await Promise.all(Array.from({ length: 8 }, () => compileWxml({ cwd: root, files, components, cut: false })));
+    expect(new Set(results).size).toBe(1);
+  });
+});

@@ -1,0 +1,49 @@
+/**
+ * 浏览器端运行时共享类型
+ *
+ * 宿主页面（host）与逻辑层/渲染层 iframe 同源，iframe 内的桥直接调用宿主对象，
+ * 不经过 postMessage：同步 API（如 getStorageSync）因此可以同步返回。
+ */
+
+export type FrameKind = 'service' | 'webview';
+
+/** iframe 内桥对象上供宿主回调的入口 */
+export interface FrameBridge {
+  /** 系统事件，对应基础库的 WeixinJSBridge.on */
+  __dispatchOn(event: string, data: unknown, webviewId?: number): void;
+  /** 另一层发布的消息，对应 WeixinJSBridge.subscribe */
+  __dispatchSub(event: string, data: unknown, webviewId?: number): void;
+}
+
+export type InvokeCallback = (result: Record<string, unknown>) => void;
+
+/** 宿主暴露给 iframe 的接口（window.parent.__wxaHost） */
+export interface HostApi {
+  registerFrame(kind: FrameKind, win: Window, bridge: FrameBridge, webviewId: number): void;
+  invoke(kind: FrameKind, win: Window, api: string, args: unknown, callback?: InvokeCallback): void;
+  publish(kind: FrameKind, win: Window, event: string, data: unknown, webviewIds?: number[]): void;
+  frameLoaded(kind: FrameKind, webviewId: number): void;
+  reportError(kind: FrameKind, webviewId: number, error: unknown): void;
+  device: DeviceProfile;
+}
+
+export interface DeviceProfile {
+  model: string;
+  screenWidth: number;
+  screenHeight: number;
+  pixelRatio: number;
+  statusBarHeight: number;
+  system: string;
+  platform: string;
+}
+
+/** /__wxa__/app-info.json */
+export interface AppInfo {
+  version: number;
+  appid: string;
+  baseLibVersion: string;
+  wxConfig: Record<string, any>;
+  pages: string[];
+  device: DeviceProfile;
+  buildError?: string;
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@open-wxa/wxa-runner-cli",
+  "version": "0.1.0",
+  "description": "CLI tool for wxa-runner",
+  "bin": {
+    "wxa-runner": "./bin/wxa-runner.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "scripts": {
+    "dev": "node bin/wxa-runner.js"
+  },
+  "dependencies": {
+    "@open-wxa/wxa-runner-core": "workspace:*",
+    "@open-wxa/wxa-runner-extractor": "workspace:*",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0"
+  }
+}

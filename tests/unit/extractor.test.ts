@@ -1,15 +1,16 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   compareVersions,
   extractBaseLib,
   listInstalledBaseLibs,
   selectBaseLib
 } from '../../packages/extractor/src/baselib';
+import { findRegionDataFile } from '../../packages/extractor/src/devtools';
 import { readWxvpkgFile, readWxvpkgIndex } from '../../packages/extractor/src/wxvpkg';
-import { packWxvpkg } from '../helpers';
+import { createProject, packWxvpkg } from '../helpers';
 
 describe('wxvpkg 解包', () => {
   it('读出包内每个文件的名称和内容', () => {
@@ -86,5 +87,22 @@ describe('基础库解包缓存', () => {
     fs.writeFileSync(path.join(vendorDir, '3.7.0.wxvpkg'), packWxvpkg({ '/../../evil.js': 'x' }));
     const [lib] = listInstalledBaseLibs([vendorDir]);
     expect(() => extractBaseLib(lib, fs.mkdtempSync(path.join(os.tmpdir(), 'wxa-cache-')))).toThrow('非法路径');
+  });
+});
+
+describe('行政区划数据', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('从开发者工具安装目录找到省市区和含街道的两份数据', () => {
+    const devtools = createProject({
+      'package.nw/package.json': '{}',
+      'package.nw/js/libs/region_sub_strict_third': '440000\t广东省 0',
+      'package.nw/js/libs/region_sub_strict': '440000000\t广东省\t000000'
+    });
+    vi.stubEnv('WXA_DEVTOOLS_PATH', devtools);
+    expect(findRegionDataFile('districts')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict_third'));
+    expect(findRegionDataFile('streets')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict'));
   });
 });

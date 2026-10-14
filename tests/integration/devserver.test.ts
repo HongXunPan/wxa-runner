@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { findRegionDataFile } from '../../packages/extractor/src/devtools';
 import { DevServer } from '../../packages/core/src/server/DevServer';
 import { EXAMPLES, hasDevtools, REPO_ROOT } from '../helpers';
 
@@ -74,6 +75,14 @@ describe.skipIf(!ready)('DevServer', () => {
     expect(file.headers.get('content-type')).toContain('image/jpeg');
     expect(await file.text()).toBe('jpeg-bytes');
     expect((await get('/__wxa__/tmp/missing.jpg')).status).toBe(404);
+  });
+
+  it.skipIf(!findRegionDataFile('districts'))('地区选择器用的行政区划数据取自本机开发者工具', async () => {
+    const districts = await get('/__wxa__/region/districts');
+    expect(districts.headers.get('content-type')).toContain('text/plain');
+    expect(await districts.text()).toContain('海珠区');
+    expect(await (await get('/__wxa__/region/streets')).text()).toContain('赤岗街道');
+    expect((await get('/__wxa__/region/other')).status).toBe(404);
   });
 
   it('基础库与小程序静态资源都能访问，渲染层路径下的相对资源也能解析', async () => {

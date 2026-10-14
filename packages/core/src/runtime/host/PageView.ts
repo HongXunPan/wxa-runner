@@ -3,7 +3,7 @@
  */
 
 import type { FrameBridge } from '../types';
-import type { NavigationState } from './ui/PhoneShell';
+import type { NavigationState, SafeAreaInsets } from './ui/PhoneShell';
 
 type PendingDispatch = (bridge: FrameBridge, win: Window) => void;
 
@@ -60,6 +60,16 @@ export class PageView {
   dispatch(fn: PendingDispatch) {
     if (this.bridge && this.win) fn(this.bridge, this.win);
     else this.pending.push(fn);
+  }
+
+  /** 页面样式里的 env(safe-area-inset-*) 构建时已改写成这些变量，见 rewriteSafeAreaInsets */
+  setSafeAreaInsets(insets: SafeAreaInsets) {
+    this.dispatch((_bridge, win) => {
+      const style = win.document.documentElement.style;
+      for (const [side, value] of Object.entries(insets)) {
+        style.setProperty(`--wxa-safe-area-inset-${side}`, `${value}px`);
+      }
+    });
   }
 
   /** data-current 是给测试用的公开契约：iframe[data-current] 始终指向当前页 */

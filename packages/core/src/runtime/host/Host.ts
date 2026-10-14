@@ -256,6 +256,8 @@ export class Host implements HostApi {
       this.info.version,
       this.navigationFor(path)
     );
+    // 渲染层注册桥时（基础库加载前）写入，首屏就按正确的安全区排版
+    page.setSafeAreaInsets(this.shell.safeAreaInsetsFor(path, page.navigation));
     this.pages.set(page.id, page);
     if (isTab) this.tabPages.set(path, page);
 

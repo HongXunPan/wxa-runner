@@ -23,6 +23,13 @@ export interface TabBarConfig {
   list: Array<{ pagePath: string; text?: string; iconPath?: string; selectedIconPath?: string }>;
 }
 
+export interface SafeAreaInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface ToastOptions {
   title?: string;
   icon?: 'success' | 'error' | 'loading' | 'none';
@@ -152,10 +159,28 @@ export class PhoneShell {
     this.navBar.classList.toggle('is-loading', loading);
   }
 
+  /** 该页面是否显示原生 tabBar（自定义 tabBar 不算） */
+  hasTabBar(pagePath: string): boolean {
+    return !!this.tabBarConfig?.list.some(item => item.pagePath === pagePath);
+  }
+
+  /**
+   * 页面窗口里 env(safe-area-inset-*) 的取值：窗口贴着屏幕边缘的一侧才有安全区。
+   * 默认导航栏下窗口在导航栏下方，tabBar 页面的窗口止于 tabBar 上方。
+   */
+  safeAreaInsetsFor(pagePath: string, navigation: Pick<NavigationState, 'custom'>): SafeAreaInsets {
+    return {
+      top: navigation.custom ? this.profile.statusBarHeight : 0,
+      right: 0,
+      bottom: this.hasTabBar(pagePath) ? 0 : this.profile.safeAreaBottom,
+      left: 0
+    };
+  }
+
   /** 当前页面是 tabBar 页面时传入它的路径，否则传 null */
   renderTabBar(selectedPath: string | null) {
     const config = this.tabBarConfig;
-    this.tabBarVisible = !!config && selectedPath !== null && config.list.some(item => item.pagePath === selectedPath);
+    this.tabBarVisible = selectedPath !== null && this.hasTabBar(selectedPath);
     this.tabBar.classList.toggle('is-hidden', !this.tabBarVisible);
     if (!config || !this.tabBarVisible) return;
 

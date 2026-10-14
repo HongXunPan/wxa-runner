@@ -3,3 +3,5 @@
   <view id="detail-id">id = {{id}}</view>
   <button id="btn-back" bindtap="back">navigateBack</button>
 </view>
+<view id="detail-footer" class="footer">底部留出安全区</view>
+<view id="detail-inline" style="padding-top: env(safe-area-inset-top, 5px); padding-bottom: env(safe-area-inset-bottom)"></view>

@@ -11,6 +11,7 @@
  *   1. 完整版 $gwx（wcc -cc）
  *   2. wcsc 的公共样式运行时 + app.wxss
  *   3. 每个页面/组件的 __wxAppCode__ json / wxml / wxss
+ *   样式和模板里的 env(safe-area-inset-*) 改写成 CSS 变量，见 rewriteSafeAreaInsets
  */
 
 import { compileWxml, compileWxss, ComponentTags } from '@open-wxa/wxa-runner-compiler';
@@ -190,15 +191,20 @@ export class AppBuilder {
       compileWxml({ cwd, files, components, cut: false }),
       compileWxml({ cwd, files, components, cut: true })
     ]);
-    return { full, cut };
+    // 只有渲染层的完整版带内联 style
+    return { full: rewriteSafeAreaInsets(full), cut };
   }
 
-  private compileStyles(units: string[]) {
-    return compileWxss({
+  private async compileStyles(units: string[]) {
+    const { comm, pages } = await compileWxss({
       cwd: this.project.root,
       pageFiles: units.filter(id => this.project.exists(id + '.wxss')).map(id => `./${id}.wxss`),
       commonFiles: this.project.exists('app.wxss') ? ['./app.wxss'] : []
     });
+    return {
+      comm: rewriteSafeAreaInsets(comm),
+      pages: Object.fromEntries(Object.entries(pages).map(([file, css]) => [file, rewriteSafeAreaInsets(css)]))
+    };
   }
 
   /** $gwx 加上各页面、组件的 json / wxml 注册；逻辑层用裁剪版 $gwx，渲染层用完整版 */
@@ -253,6 +259,17 @@ function requireStatement(file: string, route: string | null): string {
     ? `__wxRoute = ${toJs(route)}; __wxRouteBegin = true; __wxAppCurrentFile__ = ${toJs(file)};`
     : `__wxAppCurrentFile__ = ${toJs(file)};`;
   return `${routeSetup}\ntry { require(${toJs(file)}); } catch (error) { console.error(${toJs('[wxa-runner] ' + file + ' 执行出错\n')}, error); }`;
+}
+
+/**
+ * env(safe-area-inset-*) / constant(safe-area-inset-*) → var(--wxa-safe-area-inset-*)
+ *
+ * 桌面浏览器里这些 env() 恒为 0，而真机上的值取决于页面窗口是否贴着屏幕边缘（tabBar 页面底部为 0），
+ * 所以改成变量，由宿主按页面写入（PageView.setSafeAreaInsets）。只替换函数名和参数名，
+ * fallback 原样保留——wcsc 会把其中的 rpx 拆成数组片段，不能整体解析。
+ */
+export function rewriteSafeAreaInsets(code: string): string {
+  return code.replace(/\b(?:env|constant)\(\s*safe-area-inset-(top|right|bottom|left)\b/g, 'var(--wxa-safe-area-inset-$1');
 }
 
 /** JSON 序列化并转义 </script> 与行分隔符，结果可安全嵌入脚本 */

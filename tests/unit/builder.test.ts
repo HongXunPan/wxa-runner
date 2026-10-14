@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { AppBuilder, toJs } from '../../packages/core/src/project/AppBuilder';
+import { AppBuilder, rewriteSafeAreaInsets, toJs } from '../../packages/core/src/project/AppBuilder';
 import { MiniProgram } from '../../packages/core/src/project/MiniProgram';
 import { createProject, hasDevtools } from '../helpers';
 
@@ -55,6 +55,25 @@ describe('toJs', () => {
     expect(code).not.toContain('</script>');
     expect(code).not.toMatch(/[\u2028\u2029]/);
     expect(JSON.parse(code)).toEqual(value);
+  });
+});
+
+describe('安全区 env() 改写', () => {
+  it('env() 与 iOS 11 的 constant() 都改写成宿主按页面下发的 CSS 变量', () => {
+    expect(rewriteSafeAreaInsets('a{padding-bottom:env(safe-area-inset-bottom);margin-top:constant(safe-area-inset-top)}'))
+      .toBe('a{padding-bottom:var(--wxa-safe-area-inset-bottom);margin-top:var(--wxa-safe-area-inset-top)}');
+  });
+
+  it('保留 fallback，包括 wcsc 把 rpx 拆成数组片段的情况', () => {
+    expect(rewriteSafeAreaInsets('calc(20px + env( safe-area-inset-left , 10px))'))
+      .toBe('calc(20px + var(--wxa-safe-area-inset-left , 10px))');
+    expect(rewriteSafeAreaInsets('"b{padding:env(safe-area-inset-right, ",[0,20],")}"'))
+      .toBe('"b{padding:var(--wxa-safe-area-inset-right, ",[0,20],")}"');
+  });
+
+  it('其他 env() 变量和普通文本不动', () => {
+    const css = 'a{height:env(keyboard-inset-height);content:"safe-area-inset-bottom"}';
+    expect(rewriteSafeAreaInsets(css)).toBe(css);
   });
 });
 

@@ -109,7 +109,7 @@ wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会�
 | --- | --- |
 | 渲染与逻辑 | WXML、WXSS（rpx）、WXS、自定义组件（含 npm 组件、全局组件、抽象节点），App / Page / Component 生命周期 |
 | 路由 | navigateTo / redirectTo / navigateBack / switchTab / reLaunch，10 层页面栈，tabBar 页面实例保留 |
-| 界面 | 导航栏（标题、颜色、返回、自定义导航栏）、tabBar、toast / loading / modal / actionSheet |
+| 界面 | 默认模拟 iPhone X；导航栏（标题、颜色、返回、自定义导航栏）、tabBar、toast / loading / modal / actionSheet；样式中的 `env(safe-area-inset-*)` 按页面窗口取值 |
 | 网络 | request / downloadFile / uploadFile 经代理转发，connectSocket 直连 |
 | 存储 | Storage 按 appid 隔离存于 localStorage；FileSystemManager 基本操作 |
 | 启动前准备 | `wxa.setup.ts`：小程序启动前预置存储、覆盖原生 API，跳过登录等浏览器里走不通的环节 |

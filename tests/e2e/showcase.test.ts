@@ -127,6 +127,21 @@ describe.skipIf(!ready)('showcase 示例', () => {
     expect(await current().locator('#parent-count').textContent()).toBe('父页面收到：2');
   });
 
+  it('env(safe-area-inset-*) 按页面窗口取值：贴着屏幕底边的页面才有底部安全区', async () => {
+    const padding = (selector: string, side: 'Top' | 'Bottom') =>
+      current().locator(selector).evaluate((el, prop) => getComputedStyle(el)[prop as 'paddingTop'], 'padding' + side);
+
+    // tabBar 页面的窗口止于 tabBar 上方
+    await open();
+    expect(await padding('#index-safe-bottom', 'Bottom')).toBe('0px');
+
+    // 非 tabBar 页面延伸到屏幕底部；默认导航栏下窗口不碰状态栏，顶部为 0 而不是 fallback
+    await open('/?path=pages/detail/detail&id=1');
+    expect(await padding('#detail-footer', 'Bottom')).toBe('34px');
+    expect(await padding('#detail-inline', 'Bottom')).toBe('34px');
+    expect(await padding('#detail-inline', 'Top')).toBe('0px');
+  });
+
   it('通过 ?path= 直接打开指定页面，Storage 可以从测试中读取', async () => {
     const frame = await open('/?path=pages/detail/detail&id=7');
     expect(await frame.textContent('#detail-id')).toBe('id = 7');

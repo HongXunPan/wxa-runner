@@ -24,3 +24,4 @@
   <view id="modal-result">{{modalResult}}</view>
   <button id="btn-detail" bindtap="goDetail">navigateTo 详情页</button>
 </view>
+<view id="index-safe-bottom" style="padding-bottom: env(safe-area-inset-bottom)"></view>

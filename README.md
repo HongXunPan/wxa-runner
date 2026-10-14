@@ -118,6 +118,7 @@ wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会�
 ## 在 Playwright 中使用
 
 ```ts
+/// <reference types="@open-wxa/wxa-runner-core/test-api" />
 import { test, expect } from '@playwright/test';
 
 test('提交后跳转到结果页', async ({ page }) => {
@@ -127,15 +128,27 @@ test('提交后跳转到结果页', async ({ page }) => {
   // mock 原生接口
   await page.evaluate(() => window.__wxa_test_api__.mock('login', { code: 'test_code' }));
 
-  // 每个页面是一个 iframe，用 frameName 定位
-  const { frameName } = await page.evaluate(() => window.__wxa_test_api__.currentPage());
-  const frame = page.frame({ name: frameName })!;
-  await frame.click('#submit');
+  // 每个页面是一个 iframe，iframe[data-current] 始终指向当前页，跳转后无需重新获取
+  const current = page.frameLocator('iframe[data-current]');
+  await current.locator('#submit').click();
 
   const result = await page.evaluate(() => window.__wxa_test_api__.waitForPage('pages/result/result'));
   expect(result.query).toEqual({ status: 'ok' });
+  await expect(current.locator('.result-title')).toHaveText('提交成功');
+});
+
+// 逻辑层、渲染层的运行时错误不会让测试失败，建议统一检查
+test.afterEach(async ({ page }) => {
+  expect(await page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([]);
 });
 ```
+
+跳转后如果新旧页面都有同一个选择器，先用 `waitForPage` 等跳转完成，避免断言落在上一个页面上。
+
+第一行的引用为 `window.__wxa_test_api__` 提供类型（也可以写进 tsconfig 的 `compilerOptions.types`），
+需要把 `@open-wxa/wxa-runner-core` 加为开发依赖；目前未发布到 npm，可以链接本地仓库：
+`pnpm add -D link:<wxa-runner 仓库>/packages/core`。编写 mock 时用到的 `ApiHandler`、`WxaTestApi` 等类型
+可以从 `@open-wxa/wxa-runner-core` 导入。
 
 完整示例见 [tests/e2e/showcase.test.ts](./tests/e2e/showcase.test.ts)。
 

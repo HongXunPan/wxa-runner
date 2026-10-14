@@ -10,6 +10,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./test-api": {
+      "types": "./dist/test-api.d.ts"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "test-api": [
+        "./dist/test-api.d.ts"
+      ]
     }
   },
   "files": [

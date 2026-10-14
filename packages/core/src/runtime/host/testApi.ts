@@ -3,7 +3,7 @@
  */
 
 import type { ApiHandler, ApiResult } from './api/registry';
-import type { Host } from './Host';
+import type { FrameError, Host } from './Host';
 
 export interface PageSnapshot {
   webviewId: number;
@@ -27,7 +27,7 @@ export interface WxaTestApi {
   switchTab(url: string): Promise<ApiResult>;
   getStorage(key: string): unknown;
   clearStorage(): void;
-  errors(): Host['errors'];
+  errors(): FrameError[];
 }
 
 export function installTestApi(host: Host, ready: Promise<void>): WxaTestApi {

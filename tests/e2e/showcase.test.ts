@@ -23,15 +23,17 @@ describe.skipIf(!ready)('showcase 示例', () => {
   let base = '';
 
   const currentFrame = async (): Promise<Frame> => {
-    const { frameName } = await page.evaluate(() => (window as any).__wxa_test_api__.currentPage());
+    const { frameName } = (await page.evaluate(() => window.__wxa_test_api__.currentPage()))!;
     return page.frame({ name: frameName })!;
   };
+  // 跨跳转始终指向当前页，不用在每次跳转后重新取 frame
+  const current = () => page.frameLocator('iframe[data-current]');
   const waitForPage = (pagePath: string) =>
-    page.evaluate(p => (window as any).__wxa_test_api__.waitForPage(p), pagePath);
+    page.evaluate(p => window.__wxa_test_api__.waitForPage(p), pagePath);
   const open = async (url = '/') => {
     await page.goto(base + url);
-    await page.waitForFunction(() => (window as any).__wxa_test_api__);
-    await page.evaluate(() => (window as any).__wxa_test_api__.ready);
+    await page.waitForFunction(() => window.__wxa_test_api__);
+    await page.evaluate(() => window.__wxa_test_api__.ready);
     return currentFrame();
   };
 
@@ -83,7 +85,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
 
   it('wx.request 经代理发出，mock 后返回指定数据', async () => {
     const frame = await open();
-    await page.evaluate(() => (window as any).__wxa_test_api__.mock('createRequestTask', (_args: unknown, ctx: any) => {
+    await page.evaluate(() => window.__wxa_test_api__.mock('createRequestTask', (_args: unknown, ctx: any) => {
       // mock 的是原生层，结果仍要按协议通过事件回传
       setTimeout(() => (window as any).__wxaHost.emitToService('onRequestTaskStateChange', {
         requestTaskId: 'm1', state: 'success', data: '{"ok":true}', statusCode: 201, header: {}
@@ -92,47 +94,43 @@ describe.skipIf(!ready)('showcase 示例', () => {
     }));
     await frame.click('#btn-request');
     await frame.waitForFunction(() => document.querySelector('#request-result')!.textContent === 'status 201');
-    await page.evaluate(() => (window as any).__wxa_test_api__.unmock('createRequestTask'));
+    await page.evaluate(() => window.__wxa_test_api__.unmock('createRequestTask'));
   });
 
   it('navigateTo 带参数打开新页面，navigateBack 回到原页面且状态保留', async () => {
-    let frame = await open();
-    await frame.click('wx-counter wx-button');
-    await frame.click('#btn-detail');
+    await open();
+    await current().locator('wx-counter wx-button').click();
+    await current().locator('#btn-detail').click();
     const detail = await waitForPage('pages/detail/detail');
     expect(detail.query).toEqual({ id: '42' });
 
-    frame = await currentFrame();
-    expect(await frame.textContent('#detail-id')).toBe('id = 42');
+    expect(await current().locator('#detail-id').textContent()).toBe('id = 42');
     expect(await page.isVisible('.wxa-navbar-back')).toBe(true);
     expect(await page.isVisible('.wxa-tabbar')).toBe(false);
     expect(page.url()).toContain('path=pages%2Fdetail%2Fdetail&id=42');
 
-    await frame.click('#btn-back');
+    await current().locator('#btn-back').click();
     await waitForPage('pages/index/index');
-    frame = await currentFrame();
-    expect(await frame.textContent('#parent-count')).toBe('父页面收到：2');
-    expect(await page.evaluate(() => (window as any).__wxa_test_api__.pageStack().length)).toBe(1);
+    expect(await current().locator('#parent-count').textContent()).toBe('父页面收到：2');
+    expect(await page.evaluate(() => window.__wxa_test_api__.pageStack().length)).toBe(1);
   });
 
   it('tabBar 切换页面，切回时页面实例保留', async () => {
-    let frame = await open();
-    await frame.click('wx-counter wx-button');
+    await open();
+    await current().locator('wx-counter wx-button').click();
     await page.click('.wxa-tabbar-item[data-page-path="pages/mine/mine"]');
     await waitForPage('pages/mine/mine');
-    frame = await currentFrame();
-    expect(await frame.textContent('#mine-visits')).toMatch(/首页访问次数：\d+/);
+    expect(await current().locator('#mine-visits').textContent()).toMatch(/首页访问次数：\d+/);
 
     await page.click('.wxa-tabbar-item[data-page-path="pages/index/index"]');
     await waitForPage('pages/index/index');
-    frame = await currentFrame();
-    expect(await frame.textContent('#parent-count')).toBe('父页面收到：2');
+    expect(await current().locator('#parent-count').textContent()).toBe('父页面收到：2');
   });
 
   it('通过 ?path= 直接打开指定页面，Storage 可以从测试中读取', async () => {
     const frame = await open('/?path=pages/detail/detail&id=7');
     expect(await frame.textContent('#detail-id')).toBe('id = 7');
-    expect(await page.evaluate(() => typeof (window as any).__wxa_test_api__.getStorage('showcase:visits'))).toBe('number');
+    expect(await page.evaluate(() => typeof window.__wxa_test_api__.getStorage('showcase:visits'))).toBe('number');
   });
 
   it('默认字号固定为 16px，不受浏览器字号设置影响', async () => {
@@ -143,9 +141,9 @@ describe.skipIf(!ready)('showcase 示例', () => {
     try {
       const tab = await context.newPage();
       await tab.goto(base + '/');
-      await tab.waitForFunction(() => (window as any).__wxa_test_api__);
-      await tab.evaluate(() => (window as any).__wxa_test_api__.ready);
-      const { frameName } = await tab.evaluate(() => (window as any).__wxa_test_api__.currentPage());
+      await tab.waitForFunction(() => window.__wxa_test_api__);
+      await tab.evaluate(() => window.__wxa_test_api__.ready);
+      const { frameName } = (await tab.evaluate(() => window.__wxa_test_api__.currentPage()))!;
       const frame = tab.frame({ name: frameName })!;
       expect(await frame.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe('16px');
     } finally {
@@ -154,6 +152,6 @@ describe.skipIf(!ready)('showcase 示例', () => {
   });
 
   it('整个过程中逻辑层和渲染层没有未捕获的错误', async () => {
-    expect(await page.evaluate(() => (window as any).__wxa_test_api__.errors())).toEqual([]);
+    expect(await page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([]);
   });
 });

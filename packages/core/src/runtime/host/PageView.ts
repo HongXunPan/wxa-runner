@@ -62,14 +62,17 @@ export class PageView {
     else this.pending.push(fn);
   }
 
+  /** data-current 是给测试用的公开契约：iframe[data-current] 始终指向当前页 */
   show() {
     this.frame.style.visibility = 'visible';
     this.frame.style.zIndex = '1';
+    this.frame.dataset.current = '';
   }
 
   hide() {
     this.frame.style.visibility = 'hidden';
     this.frame.style.zIndex = '0';
+    delete this.frame.dataset.current;
   }
 
   destroy() {

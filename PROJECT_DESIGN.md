@@ -409,13 +409,19 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - 插件、分包异步化、Worker
 - 页面内存状态保持的热更新
 
-### Phase 3：Playwright 集成（预计 2 周）
+### Phase 3：Playwright 集成
 
-- [ ] `@open-wxa/playwright` 辅助库（基于已有的 `__wxa_test_api__`）
-- [ ] 自定义 Locator（穿透组件样式隔离产生的 id 前缀等）
-- [ ] 自定义 Matchers（如 `toHavePath`、`toHaveSetData`）
+直接用 Playwright 加 `__wxa_test_api__` 就能写测试，先补齐让这种用法顺手的部分：
+
 - [x] Mock 注入 API（`__wxa_test_api__.mock`）
+- [x] 当前页标记：`iframe[data-current]` 始终指向当前页，跨跳转可直接用 `page.frameLocator`
+- [x] `window.__wxa_test_api__` 的全局类型声明（`@open-wxa/wxa-runner-core/test-api`）
 - [ ] 测试最佳实践文档
+
+暂缓 `@open-wxa/playwright` 辅助库。服务器生命周期可以交给 Playwright 自带的 `webServer`，
+运行时错误检查一行 `afterEach` 就够，单独发一个包的维护成本目前换不来什么。
+出现文档和配置表达不了的需求时再做，例如：Node 侧执行的 mock 处理函数（便于断言请求参数）、
+按 WXML 标签名和组件样式隔离前缀选择元素、`toHavePath` / `toHavePageData` 这类自动重试的断言。
 
 ### Phase 4：生产优化（预计 2 周）
 

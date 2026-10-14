@@ -12,3 +12,6 @@ export { MiniProgram } from './project/MiniProgram';
 export type { AppJson, UnitJson } from './project/MiniProgram';
 export { createWxConfig } from './project/wxConfig';
 export type { AppInfo, DeviceProfile } from './runtime/types';
+export type { ApiContext, ApiHandler, ApiResult } from './runtime/host/api/registry';
+export type { FrameError } from './runtime/host/Host';
+export type { PageSnapshot, WxaTestApi } from './runtime/host/testApi';

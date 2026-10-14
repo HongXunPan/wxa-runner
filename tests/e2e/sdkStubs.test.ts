@@ -67,16 +67,16 @@ describe.skipIf(!ready)('伴生 SDK 子包占位', () => {
 
   it('createRewardedVideoAd 不再打断 onLoad，失败走 onError', async () => {
     await page.goto(base);
-    await page.waitForFunction(() => (window as any).__wxa_test_api__);
-    await page.evaluate(() => (window as any).__wxa_test_api__.ready);
+    await page.waitForFunction(() => window.__wxa_test_api__);
+    await page.evaluate(() => window.__wxa_test_api__.ready);
 
-    const { frameName } = await page.evaluate(() => (window as any).__wxa_test_api__.currentPage());
+    const { frameName } = (await page.evaluate(() => window.__wxa_test_api__.currentPage()))!;
     const frame = page.frame({ name: frameName })!;
 
     await frame.waitForFunction(() => document.querySelector('#step')?.textContent === 'onLoad 结束');
     await frame.waitForFunction(() => (document.querySelector('#ad-error')?.textContent || '').length > 0);
 
-    const errors = await page.evaluate(() => (window as any).__wxa_test_api__.errors());
-    expect(errors.filter((e: string) => String(e).includes('RewardedVideoAd'))).toEqual([]);
+    const errors = await page.evaluate(() => window.__wxa_test_api__.errors());
+    expect(errors.filter(e => e.message.includes('RewardedVideoAd'))).toEqual([]);
   });
 });

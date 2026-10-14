@@ -15,8 +15,19 @@ const WEB_WXML = `
 const WEB_JS = `
 Page({
   data: { src: '', loaded: '' },
-  onLoad(query) { this.setData({ src: decodeURIComponent(query.src || '') }); },
-  onWebLoad(e) { this.setData({ loaded: e.detail.src }); }
+  onLoad(query) {
+    this.next = decodeURIComponent(query.next || '');
+    this.setData({ src: decodeURIComponent(query.src || '') });
+  },
+  onWebLoad(e) {
+    this.setData({ loaded: e.detail.src });
+    // 第一个网页加载完后改 src，模拟页面切换网页
+    if (this.next) {
+      const next = this.next;
+      this.next = '';
+      this.setData({ src: next });
+    }
+  }
 });
 `;
 
@@ -59,15 +70,9 @@ describe.skipIf(!e2eReady)('web-view', () => {
   });
 
   it('页面改了 src 后 web-view 打开新地址', async () => {
-    const frame = await runner.open(webPage(hello));
-    await expectText(frame, '#loaded', hello);
-
-    await runner.page.frame({ name: 'wxa-appservice' })!.evaluate(url => {
-      const pages = (globalThis as any).getCurrentPages();
-      pages[pages.length - 1].setData({ src: url });
-    }, bye);
-    await expect(embedded().locator('#title').textContent()).resolves.toBe('Bye H5');
+    const frame = await runner.open(`${webPage(hello)}&next=${encodeURIComponent(bye)}`);
     await expectText(frame, '#loaded', bye);
+    await expect(embedded().locator('#title').textContent()).resolves.toBe('Bye H5');
   });
 
   it('返回上一页后网页随页面一起关闭', async () => {

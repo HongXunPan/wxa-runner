@@ -153,6 +153,20 @@ describe.skipIf(!hasDevtools())('完整构建', () => {
     expect(result.pageTemplates).not.toContain('color: #333');
   });
 
+  it('app.wxss 和页面样式 @import 的共享样式文件一起编译（uni-app 的 common/main.wxss）', async () => {
+    const root = demoProject();
+    fs.mkdirSync(path.join(root, 'common'));
+    fs.mkdirSync(path.join(root, 'styles'));
+    fs.writeFileSync(path.join(root, 'common/main.wxss'), '.from-common { color: red; }');
+    fs.writeFileSync(path.join(root, 'styles/shared.wxss'), '.from-shared { margin: 20rpx; }');
+    fs.writeFileSync(path.join(root, 'app.wxss'), "@import './common/main.wxss';\npage { color: #333; }");
+    fs.writeFileSync(path.join(root, 'pages/a/a.wxss'), "@import '../../styles/shared.wxss';\n.x { margin: 10rpx; }");
+
+    const result = await new AppBuilder(new MiniProgram(root)).build();
+    expect(result.pageFrame).toContain('from-common');
+    expect(result.pageFrame).toContain('from-shared');
+  });
+
   it('编译失败时抛出编译器的错误信息，修复后可以重新构建', async () => {
     const root = demoProject();
     const builder = new AppBuilder(new MiniProgram(root));

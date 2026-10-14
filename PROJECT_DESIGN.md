@@ -301,6 +301,36 @@ navigateTo(url)
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。
 测试中可以用 `__wxa_test_api__.mock()` 覆盖任意 API。
 
+#### 伴生 SDK 子包
+
+上面的兜底只覆盖走 `WeixinJSBridge.invoke` 的调用。另有一类能力实现在基础库内部，
+由一组伴生文件提供，真机和开发者工具由原生层调用 `loadMainContextLibFile` 把它们
+同步加载进逻辑层上下文，再把导出挂到约定的全局名上：
+
+| 全局名 | 伴生文件 | 能力 |
+| --- | --- | --- |
+| `ADSDK` | WAAppAd.js | 广告 |
+| `__cloudSDKMain__` / `__sclEngine__` | WACloud.js / WASubAppSclEngine.js | 云开发 |
+| `MidasSDK` / `OrderMidasSDK` | WAMidasSDK.js / WAOrderMidasSDK.js | 米大师支付 |
+| `__splashAdFloatWindowSDK__` / `__progneSDK__` | WASplashAdFloatWindow.js / WAProgneService.js | 开屏广告浮窗 |
+
+运行时没有这套加载机制。缺失不会直接抛到业务代码——基础库把内部异常包成
+`appServiceSDKScriptError` 自己吞掉，于是 `wx.createRewardedVideoAd()` 返回 `undefined`，
+崩的是下一行业务代码的 `ad.onError(...)`。所以占位（`runtime/sdkStubs.ts`）放在 `wx` 这一层，
+返回接口齐全、`load`/`show` 必定失败的广告对象，业务代码走自己的广告失败分支。
+
+装占位的时机只有一个窗口：基础库初始化完会把这些接口改成返回 `undefined` 的函数，
+占位要在业务代码执行前装。做法是在基础库加载前用存取器占住 `globalThis.require`，
+bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等）。
+
+不事后包装 `require`、也不让生成的 bootstrap 去调运行时包里的全局：基础库交出全局的方式
+按版本而异（3.7.0 直接写 `globalThis`，并不调 `__passWAServiceGlobal__`），事后包装没有
+可靠时机；而让 bootstrap 依赖运行时包的全局，会在 `dist/runtime` 没跟着重新构建时
+直接 ReferenceError 崩掉整个小程序。
+
+不给 `SkylineGlobal` / `NativeGlobal` / `xrFrame` / `WeixinJSContext` 这类全局打桩——
+基础库对它们做 `typeof` 检测，补上会让它走进依赖更多的分支，比缺失更糟。
+
 ### 5. 服务层（core/server）
 
 | 路由 | 内容 |

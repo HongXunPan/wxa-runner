@@ -110,6 +110,30 @@ describe.skipIf(!hasDevtools())('完整构建', () => {
     expect(a).toBe(b);
   });
 
+  it('构建进行中又有文件变化时，拿到的结果包含这次变化', async () => {
+    const root = demoProject();
+    const builder = new AppBuilder(new MiniProgram(root));
+    await builder.build();
+
+    fs.writeFileSync(path.join(root, 'pages/b/b.wxml'), '<view>first</view>');
+    builder.invalidate(['pages/b/b.wxml']);
+    const running = builder.build();
+    fs.writeFileSync(path.join(root, 'pages/b/b.wxml'), '<view>second</view>');
+    builder.invalidate(['pages/b/b.wxml']);
+    const [stale, latest] = await Promise.all([running, builder.build()]);
+
+    // 进行中的那次构建可能已经读过旧文件，必须另起一次
+    expect(latest.version).toBeGreaterThan(stale.version);
+    expect(latest.pageFrame).toContain('second');
+  });
+
+  it('热更新用的渲染层模板只含模板，不含样式（重复执行样式代码会累积 rpx 重算回调）', async () => {
+    const result = await new AppBuilder(new MiniProgram(demoProject())).build();
+    expect(result.pageTemplates).toContain('__wxAppCode__["pages/a/a.wxml"] = $gwx("./pages/a/a.wxml")');
+    expect(result.pageTemplates).not.toContain('setCssToHead');
+    expect(result.pageTemplates).not.toContain('color: #333');
+  });
+
   it('编译失败时抛出编译器的错误信息，修复后可以重新构建', async () => {
     const root = demoProject();
     const builder = new AppBuilder(new MiniProgram(root));

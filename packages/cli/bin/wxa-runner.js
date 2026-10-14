@@ -22,6 +22,7 @@ program
   .option('--no-setup', '不执行 setup 文件')
   .option('--no-watch', '不监听文件变化')
   .option('-o, --open', '启动后打开浏览器')
+  .option('--real-login', '使用本机微信开发者工具登录态获取真实 code 和手机号')
   .action(async (projectPath, options) => {
     const { DevServer } = require('@open-wxa/wxa-runner-core');
 
@@ -32,7 +33,8 @@ program
         host: options.host,
         baseLibVersion: options.baselib,
         setup: options.setup,
-        watch: options.watch
+        watch: options.watch,
+        realLogin: options.realLogin
       });
       const url = await server.start();
 

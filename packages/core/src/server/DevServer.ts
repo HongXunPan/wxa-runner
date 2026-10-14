@@ -12,6 +12,7 @@
  *   /__wxa__/proxy?url=        网络代理
  *   /__wxa__/tmp               临时文件：POST ?type=png 保存，返回可直接访问的地址
  *   /__wxa__/region/<kind>     地区选择器用的行政区划数据（districts / streets），取自本机开发者工具
+ *   /__wxa__/api/*             真实登录（--real-login）：wx.login 的 code、手机号，只允许本机访问
  *   /__wxa__/ws                文件变化通知：热更新（hot）或整页刷新（reload）
  *   其余路径                    小程序目录下的静态资源
  */
@@ -23,13 +24,14 @@ import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
-import { findRegionDataFile, resolveBaseLib, ResolvedBaseLib } from '@open-wxa/wxa-runner-extractor';
+import { findDeveloperTicket, findRegionDataFile, resolveBaseLib, ResolvedBaseLib } from '@open-wxa/wxa-runner-extractor';
 import { AppBuilder, BuildResult } from '../project/AppBuilder';
 import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
 import { appserviceHtml, hostHtml, webviewHtml } from './html';
 import { handleProxy } from './proxy';
 import { planHotUpdate } from './hmr';
+import { realLoginRouter, requireUsableTicket } from './realLogin';
 import { bundleSetup, collectSetupEnv, findSetupFile } from './setup';
 
 export interface DevServerOptions {
@@ -49,6 +51,8 @@ export interface DevServerOptions {
   setup?: string | false;
   /** 浏览器端运行时（host.js / frame.js）所在目录，默认取构建产物 */
   runtimeDir?: string;
+  /** 使用本机微信开发者工具登录态获取真实 code 和手机号 */
+  realLogin?: boolean;
   logger?: Pick<Console, 'log' | 'warn' | 'error'>;
 }
 
@@ -88,6 +92,13 @@ export class DevServer {
     this.baseLib = resolveBaseLib({ version: options.baseLibVersion, cacheDir: options.baseLibCacheDir });
     if (!this.baseLib.compatible) {
       this.logger.warn(`[wxa-runner] 基础库 ${this.baseLib.version} 高于已验证的版本范围，可能无法正常运行`);
+    }
+    if (options.realLogin) {
+      try {
+        requireUsableTicket(findDeveloperTicket());
+      } catch (error) {
+        this.logger.warn(`[wxa-runner] 真实登录暂不可用：${(error as Error).message}`);
+      }
     }
     this.device = { ...DEFAULT_DEVICE, ...options.device };
     this.builder = new AppBuilder(this.project);
@@ -162,7 +173,7 @@ export class DevServer {
 
     app.get('/__wxa__/app-info.json', async (_req, res) => {
       noStore(res);
-      const base = { appid: this.project.appid, baseLibVersion: this.baseLib.version, device: this.device };
+      const base = { appid: this.project.appid, baseLibVersion: this.baseLib.version, device: this.device, realLogin: this.options.realLogin === true };
       try {
         const build = await this.builder.build();
         const info: AppInfo = { ...base, version: build.version, wxConfig: build.wxConfig, pages: build.pages };
@@ -258,6 +269,8 @@ export class DevServer {
       }
       res.type(path.extname(req.params.name)).send(data);
     });
+
+    if (this.options.realLogin) app.use('/__wxa__/api', realLoginRouter(this.project.appid));
 
     // 渲染层页面路径下的相对资源（如 ../../images/a.png）
     app.use('/__wxa__/webview', express.static(root));

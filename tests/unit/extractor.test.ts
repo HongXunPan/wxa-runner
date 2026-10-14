@@ -8,7 +8,7 @@ import {
   listInstalledBaseLibs,
   selectBaseLib
 } from '../../packages/extractor/src/baselib';
-import { findRegionDataFile } from '../../packages/extractor/src/devtools';
+import { findDeveloperTicket, findRegionDataFile, TICKET_ENV } from '../../packages/extractor/src/devtools';
 import { readWxvpkgFile, readWxvpkgIndex } from '../../packages/extractor/src/wxvpkg';
 import { createProject, packWxvpkg } from '../helpers';
 
@@ -104,5 +104,53 @@ describe('行政区划数据', () => {
     vi.stubEnv('WXA_DEVTOOLS_PATH', devtools);
     expect(findRegionDataFile('districts')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict_third'));
     expect(findRegionDataFile('streets')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict'));
+  });
+});
+
+describe('开发者工具登录态', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const HOUR = 3600_000;
+
+  /** 一个账号的用户数据目录：登录信息按 localStorage 存放，hash_key_map_2.json 记录文件 hash 对应的 key */
+  const profile = (user: object | string) => createProject({
+    'WeappLocalData/hash_key_map_2.json': { f00: 'reduxPersist:project', a1b2: 'reduxPersist:user' },
+    'WeappLocalData/localstorage_a1b2.json': user
+  });
+
+  it('取当前用户的 ticket 和过期时间，不和顶层的旧字段混用', () => {
+    const expiredAt = Date.now() + HOUR;
+    const dir = profile({
+      newticket: 'stale', ticketExpiredTime: Date.now() + 9 * HOUR,
+      currentUser: { newticket: 'current', ticketExpiredTime: expiredAt, loginStatus: 'SUCCESS' }
+    });
+    expect(findDeveloperTicket([dir])).toEqual({ newticket: 'current', expiredAt });
+  });
+
+  it('多个账号都登录过时取过期时间最晚的；全部过期也返回，由调用方提示刷新', () => {
+    const user = (newticket: string, ticketExpiredTime: number) => profile({ currentUser: { newticket, ticketExpiredTime, loginStatus: 'SUCCESS' } });
+    const expired = Date.now() - HOUR;
+    expect(findDeveloperTicket([user('a', Date.now() + HOUR), user('b', Date.now() + 2 * HOUR)])?.newticket).toBe('b');
+    expect(findDeveloperTicket([user('c', expired - HOUR), user('d', expired)])).toEqual({ newticket: 'd', expiredAt: expired });
+  });
+
+  it('没有登录成功的账号、没有登录数据的目录当作未登录', () => {
+    const loggedOut = profile({ currentUser: { newticket: 't', ticketExpiredTime: Date.now() + HOUR, loginStatus: 'LOGOUT' } });
+    expect(findDeveloperTicket([loggedOut, createProject({ 'WeappVendor/x': '' })])).toBeNull();
+  });
+
+  it('登录数据读不了时报出所在目录，而不是当作未登录；其它账号可用时仍然用它', () => {
+    const broken = profile('{"currentUser":');
+    expect(() => findDeveloperTicket([broken])).toThrow(`读取开发者工具登录态失败（${broken}: `);
+    const ok = profile({ currentUser: { newticket: 'ok', ticketExpiredTime: Date.now() + HOUR, loginStatus: 'SUCCESS' } });
+    expect(findDeveloperTicket([broken, ok])?.newticket).toBe('ok');
+  });
+
+  it(`环境变量 ${TICKET_ENV} 优先于开发者工具的登录态`, () => {
+    vi.stubEnv(TICKET_ENV, 'from-env');
+    const dir = profile({ currentUser: { newticket: 'devtools', ticketExpiredTime: Date.now() + HOUR, loginStatus: 'SUCCESS' } });
+    expect(findDeveloperTicket([dir])).toEqual({ newticket: 'from-env' });
   });
 });

@@ -5,7 +5,7 @@
 import type { AppInfo } from '../types';
 import { Host, LaunchTarget } from './Host';
 import { applyHotUpdate, HotUpdate } from './hmr';
-import { reloadKeepingPageStack, reopenPages, takeSavedPageStack } from './pageStackRestore';
+import { PageStackRestore } from './pageStackRestore';
 import { applySetup, formatSetupSummary } from './setup';
 import { installTestApi } from './testApi';
 import { PhoneShell } from './ui/PhoneShell';
@@ -13,8 +13,9 @@ import { PhoneShell } from './ui/PhoneShell';
 async function main() {
   const root = document.getElementById('wxa-root')!;
   const info: AppInfo = await (await fetch('/__wxa__/app-info.json')).json();
+  const restore = new PageStackRestore(info.appid);
 
-  connectDevServer();
+  connectDevServer(restore);
 
   if (info.buildError) {
     new PhoneShell(root, info.device).showError(`编译失败\n\n${info.buildError}`);
@@ -31,10 +32,8 @@ async function main() {
   installTestApi(host, ready);
 
   if (info.setup && !(await runSetup(host, info.setup))) return;
-  // 记下的页面栈要等确定能启动时再取：编译或 setup 出错时留着，修好后的那次刷新还能用
-  const [launch, ...rest] = takeSavedPageStack(info.pages);
-  await host.start(launch ?? launchTarget(info));
-  await reopenPages(host, rest);
+  await host.start(restore.launchTarget(info.pages, launchTarget(info)));
+  await restore.reopen(host);
   markReady();
 }
 
@@ -70,19 +69,19 @@ function launchTarget(info: AppInfo): LaunchTarget {
 }
 
 /** 文件变化后热更新或整页刷新；编译出错时显示错误 */
-function connectDevServer() {
+function connectDevServer(restore: PageStackRestore) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const socket = new WebSocket(`${protocol}//${location.host}/__wxa__/ws`);
   // 连续保存时按顺序应用
   let hotChain = Promise.resolve();
   socket.onmessage = event => {
     const message = JSON.parse(event.data);
-    if (message.type === 'reload') reloadKeepingPageStack(currentHost());
-    if (message.type === 'hot') hotChain = hotChain.then(() => hotUpdate(message));
+    if (message.type === 'reload') restore.reload(currentHost());
+    if (message.type === 'hot') hotChain = hotChain.then(() => hotUpdate(message, restore));
     if (message.type === 'error') {
       const host = currentHost();
       if (host) host.shell.showError(`编译失败\n\n${message.message}`);
-      else location.reload();
+      else restore.reload(host);
     }
   };
 }
@@ -91,7 +90,7 @@ function currentHost(): Host | undefined {
   return (window as any).__wxaHost;
 }
 
-async function hotUpdate(update: HotUpdate) {
+async function hotUpdate(update: HotUpdate, restore: PageStackRestore) {
   const host = currentHost();
   const files = [...update.templates.map(id => id + '.wxml'), ...update.scripts.map(id => id + '.js')].join(', ');
   try {
@@ -100,7 +99,7 @@ async function hotUpdate(update: HotUpdate) {
     console.info(`[wxa-runner] 热更新完成：${files}`);
   } catch (error) {
     console.warn(`[wxa-runner] ${files} 无法热更新，整页刷新：`, error);
-    reloadKeepingPageStack(host);
+    restore.reload(host);
   }
 }
 

@@ -81,7 +81,8 @@ function miniProgram() {
     'components/badge/badge.json': { component: true },
     'components/badge/badge.js': BADGE_JS,
     'components/badge/badge.wxml': '<view class="badge-n">n={{n}}</view><button class="badge-inc" bindtap="inc">inc</button>',
-    'components/badge/badge.wxss': ''
+    'components/badge/badge.wxss': '',
+    'wxa.setup.js': 'export default {};'
   });
 }
 
@@ -114,6 +115,12 @@ describe.skipIf(!ready)('热更新', () => {
   const hostReloaded = async () => !(await page.evaluate(() => (window as any).__hmrMarker));
   const tap = async (selector: string) => (await current()).click(selector);
   const waitForPage = (pagePath: string) => page.evaluate(p => window.__wxa_test_api__.waitForPage(p), pagePath);
+  const stack = () => page.evaluate(() => window.__wxa_test_api__.pageStack().map(({ path, query }) => ({ path, query })));
+  const waitForReload = async () => {
+    await page.waitForFunction(() => !(window as any).__hmrMarker, undefined, { timeout: 10000 });
+    await page.waitForFunction(() => window.__wxa_test_api__);
+    await page.evaluate(() => window.__wxa_test_api__.ready);
+  };
   /** 开发者在控制台看到的热更新完成提示；要在修改文件之前开始等 */
   const hotUpdated = () => page.waitForEvent('console', { predicate: msg => msg.text().includes('[wxa-runner] 热更新完成'), timeout: 10000 });
 
@@ -218,16 +225,96 @@ describe.skipIf(!ready)('热更新', () => {
     expect(await hostReloaded()).toBe(false);
   });
 
-  it('修改 app.js 这类无法热更新的文件时整页刷新，并停留在当前页面', async () => {
-    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail'));
+  it('修改 app.js 这类无法热更新的文件时整页刷新，整个页面栈连同参数都恢复', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
     await waitForPage('pages/detail/detail');
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/vue/vue'));
+    await waitForPage('pages/vue/vue');
 
     edit('app.js', js => js.replace('loads: 0', 'loads: 100'));
 
+    await waitForReload();
+    expect(await stack()).toEqual([
+      { path: 'pages/index/index', query: {} },
+      { path: 'pages/detail/detail', query: { id: '7' } },
+      { path: 'pages/vue/vue', query: {} }
+    ]);
+    // 恢复出来的是真实的页面栈：可以一路返回
+    await page.evaluate(() => window.__wxa_test_api__.navigateBack());
+    await waitForPage('pages/detail/detail');
+  });
+
+  it('恢复页面栈途中又触发整页刷新，最终仍恢复完整的页面栈', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
+    await waitForPage('pages/detail/detail');
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/vue/vue'));
+    await waitForPage('pages/vue/vue');
+
+    // 让恢复卡在第三页：第一次请求它的渲染层时一直不响应（unroute 会放行挂起的请求，所以不能用）；
+    // 第二次刷新后的请求正常放行
+    let stalled!: () => void;
+    const reachedThirdPage = new Promise<void>(resolve => (stalled = resolve));
+    let held = false;
+    await page.route('**/__wxa__/webview/pages/vue/vue.html*', route => {
+      if (held) return route.continue();
+      held = true;
+      stalled();
+    });
+    edit('app.js', js => js.replace('loads: 0', 'loads: 100'));
+    await reachedThirdPage;
+    expect((await stack()).map(p => p.path)).toEqual(['pages/index/index', 'pages/detail/detail']);
+
+    await markHost();
+    edit('app.js', js => js.replace('loads: 100', 'loads: 200'));
+
+    await waitForReload();
+    expect((await stack()).map(p => p.path)).toEqual(['pages/index/index', 'pages/detail/detail', 'pages/vue/vue']);
+  });
+
+  it('自动刷新后 setup 出错没能启动，修好后的刷新仍恢复整个页面栈', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
+    await waitForPage('pages/detail/detail');
+
+    edit('wxa.setup.js', () => "export default { run() { throw new Error('setup 坏了'); } };");
     await page.waitForFunction(() => !(window as any).__hmrMarker, undefined, { timeout: 10000 });
+    await page.waitForSelector('.wxa-error');
+
+    await markHost();
+    edit('wxa.setup.js', () => 'export default {};');
+    await waitForReload();
+    expect(await stack()).toEqual([
+      { path: 'pages/index/index', query: {} },
+      { path: 'pages/detail/detail', query: { id: '7' } }
+    ]);
+  });
+
+  it('自动刷新后 setup 出错，开发者修好后手动刷新只恢复当前页面', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
+    await waitForPage('pages/detail/detail');
+
+    edit('wxa.setup.js', () => "export default { run() { throw new Error('setup 坏了'); } };");
+    await page.waitForFunction(() => !(window as any).__hmrMarker, undefined, { timeout: 10000 });
+    await page.waitForSelector('.wxa-error');
+
+    // 不经过开发服务器：模拟开发者先手动刷新，再改好 setup
+    await server!.close();
+    fs.writeFileSync(path.join(projectPath, 'wxa.setup.js'), 'export default {};');
+    server = new DevServer({ projectPath, port: Number(new URL(page.url()).port), watch: false, runtimeDir: RUNTIME_DIR, logger: { log: () => undefined, warn: () => undefined, error: () => undefined } });
+    await server.start();
+    await page.reload();
     await page.waitForFunction(() => window.__wxa_test_api__);
     await page.evaluate(() => window.__wxa_test_api__.ready);
-    expect((await page.evaluate(() => window.__wxa_test_api__.currentPage()))!.path).toBe('pages/detail/detail');
+    expect(await stack()).toEqual([{ path: 'pages/detail/detail', query: { id: '7' } }]);
+  });
+
+  it('开发者手动刷新时只恢复当前页面', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
+    await waitForPage('pages/detail/detail');
+
+    await page.reload();
+    await page.waitForFunction(() => window.__wxa_test_api__);
+    await page.evaluate(() => window.__wxa_test_api__.ready);
+    expect(await stack()).toEqual([{ path: 'pages/detail/detail', query: { id: '7' } }]);
   });
 
   it('构建工具重写了大量内容没变的文件时，只按内容真正变化的文件热更新', async () => {

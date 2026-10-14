@@ -114,6 +114,12 @@ describe.skipIf(!ready)('热更新', () => {
   const hostReloaded = async () => !(await page.evaluate(() => (window as any).__hmrMarker));
   const tap = async (selector: string) => (await current()).click(selector);
   const waitForPage = (pagePath: string) => page.evaluate(p => window.__wxa_test_api__.waitForPage(p), pagePath);
+  const stack = () => page.evaluate(() => window.__wxa_test_api__.pageStack().map(({ path, query }) => ({ path, query })));
+  const waitForReload = async () => {
+    await page.waitForFunction(() => !(window as any).__hmrMarker, undefined, { timeout: 10000 });
+    await page.waitForFunction(() => window.__wxa_test_api__);
+    await page.evaluate(() => window.__wxa_test_api__.ready);
+  };
   /** 开发者在控制台看到的热更新完成提示；要在修改文件之前开始等 */
   const hotUpdated = () => page.waitForEvent('console', { predicate: msg => msg.text().includes('[wxa-runner] 热更新完成'), timeout: 10000 });
 
@@ -218,16 +224,33 @@ describe.skipIf(!ready)('热更新', () => {
     expect(await hostReloaded()).toBe(false);
   });
 
-  it('修改 app.js 这类无法热更新的文件时整页刷新，并停留在当前页面', async () => {
-    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail'));
+  it('修改 app.js 这类无法热更新的文件时整页刷新，整个页面栈连同参数都恢复', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
     await waitForPage('pages/detail/detail');
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/vue/vue'));
+    await waitForPage('pages/vue/vue');
 
     edit('app.js', js => js.replace('loads: 0', 'loads: 100'));
 
-    await page.waitForFunction(() => !(window as any).__hmrMarker, undefined, { timeout: 10000 });
+    await waitForReload();
+    expect(await stack()).toEqual([
+      { path: 'pages/index/index', query: {} },
+      { path: 'pages/detail/detail', query: { id: '7' } },
+      { path: 'pages/vue/vue', query: {} }
+    ]);
+    // 恢复出来的是真实的页面栈：可以一路返回
+    await page.evaluate(() => window.__wxa_test_api__.navigateBack());
+    await waitForPage('pages/detail/detail');
+  });
+
+  it('开发者手动刷新时只恢复当前页面', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail?id=7'));
+    await waitForPage('pages/detail/detail');
+
+    await page.reload();
     await page.waitForFunction(() => window.__wxa_test_api__);
     await page.evaluate(() => window.__wxa_test_api__.ready);
-    expect((await page.evaluate(() => window.__wxa_test_api__.currentPage()))!.path).toBe('pages/detail/detail');
+    expect(await stack()).toEqual([{ path: 'pages/detail/detail', query: { id: '7' } }]);
   });
 
   it('构建工具重写了大量内容没变的文件时，只按内容真正变化的文件热更新', async () => {

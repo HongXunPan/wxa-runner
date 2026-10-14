@@ -53,7 +53,7 @@ function createTarget() {
     const result = invoke('getStorageSync', { key }) as any;
     return result.errMsg.endsWith(':ok') ? decodeStorageValue(result) : undefined;
   };
-  return { target: { storage, api, routes }, invoke, readStorage, request };
+  return { target: { storage, api, routes }, invoke, readStorage, request, events };
 }
 
 describe('setup 预置存储', () => {
@@ -170,6 +170,30 @@ describe('setup 拦截请求', () => {
     expect((await request({ url: 'https://api.example.com/v1/v2/user' })).state).toBe('fail');
   });
 
+  it('拦截规则可以模拟网络延迟，响应过了指定时间才到', async () => {
+    const { target, request } = createTarget();
+    await applySetup({ network: { routes: { 'POST **/auth/login': { delay: 100, body: { ok: true } } } } }, target, {});
+
+    const start = Date.now();
+    const res = await request({ url: LOGIN, method: 'POST' });
+    expect(res.state).toBe('success');
+    // 计时器可能提前 1ms 左右触发
+    expect(Date.now() - start).toBeGreaterThanOrEqual(95);
+  });
+
+  it('延迟中的请求被 abort 时以失败结束', async () => {
+    const { target, invoke, events } = createTarget();
+    await applySetup({ network: { routes: { '**/auth/login': { delay: 200, body: {} } } } }, target, {});
+
+    const { requestTaskId } = invoke('createRequestTask', { url: LOGIN }) as any;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    invoke('operateRequestTask', { requestTaskId, operationType: 'abort' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    const states = events.filter(e => e.data.requestTaskId === requestTaskId).map(e => e.data);
+    expect(states).toEqual([expect.objectContaining({ state: 'fail', errMsg: 'request:fail abort' })]);
+  });
+
   it('run 里也能添加拦截', async () => {
     const { target, request } = createTarget();
     await applySetup(defineSetup({
@@ -186,6 +210,7 @@ describe('setup 拦截请求', () => {
     await expect(applySetup({ network: { routes: { 'FETCH https://a.com/x': { body: {} } } } } as any, target, {}))
       .rejects.toThrow(/network\.routes\["FETCH https:\/\/a\.com\/x"\]/);
     await expect(applySetup({ network: { rotes: {} } } as any, target, {})).rejects.toThrow(/rotes.*routes/);
+    await expect(applySetup({ network: { routes: { '**/x': { delay: -1 } } } }, target, {})).rejects.toThrow(/delay/);
   });
 });
 

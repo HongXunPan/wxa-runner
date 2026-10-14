@@ -18,6 +18,7 @@ export default defineConfig({
         'packages/core/src/runtime/host/Host.ts',
         'packages/core/src/runtime/host/PageView.ts',
         'packages/core/src/runtime/host/testApi.ts',
+        'packages/core/src/runtime/host/api/webView.ts',
         'packages/core/src/runtime/host/ui/**'
       ],
       reporter: ['text-summary', 'text']

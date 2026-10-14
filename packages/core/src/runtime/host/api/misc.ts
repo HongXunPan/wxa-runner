@@ -143,6 +143,11 @@ export function createMiscApis(appid: string): Record<string, ApiHandler> {
       return ok(api, { tempFilePath: url });
     },
 
+    // 基础库经这里向后台拉各种配置。业务域名列表（webapi_getwxanetwork）要明确失败：
+    // 拿到空列表时基础库会把 web-view 事件里的网页地址清空，拉取失败才不校验，等同开发者工具的「不校验业务域名」
+    operateWXData: (args, { api }) =>
+      args.data?.api_name === 'webapi_getwxanetwork' ? fail(api, 'not available in wxa-runner') : ok(api),
+
     login: (_args, { api }) => ok(api, { code: `wxa_mock_code_${Date.now().toString(36)}` }),
     checkSession: () => undefined,
     authorize: () => undefined,

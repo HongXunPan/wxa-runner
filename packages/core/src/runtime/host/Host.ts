@@ -14,6 +14,7 @@ import { RequestRoutes } from './api/routes';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
 import { createSystemApis } from './api/system';
 import { createUiApis } from './api/ui';
+import { createWebViewApis } from './api/webView';
 import { PageStack } from './PageStack';
 import { PageView } from './PageView';
 import { NavigationState, PhoneShell } from './ui/PhoneShell';
@@ -408,6 +409,10 @@ export class Host implements HostApi {
         showPicker: options => this.shell.showPicker(options),
         emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data),
         loadRegionData: fetchRegionData
+      }),
+      ...createWebViewApis({
+        documentOf: webviewId => this.pages.get(webviewId)?.win?.document,
+        emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data)
       }),
       ...createMiscApis(this.info.appid)
     });

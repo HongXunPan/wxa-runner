@@ -27,6 +27,8 @@ export interface BuildResult {
   serviceTemplates: string;
   serviceBootstrap: string;
   pageFrame: string;
+  /** 渲染层的 $gwx 与 __wxAppCode__ json/wxml，不含样式（热更新时单独下发） */
+  pageTemplates: string;
   pages: string[];
   components: string[];
   durationMs: number;
@@ -46,7 +48,9 @@ type ChangeKind = 'config' | 'wxml' | 'wxss' | 'js';
 
 export class AppBuilder {
   private version = 0;
-  private pending: Promise<BuildResult> | null = null;
+  /** invalidate 标记过的变化次数；每次构建记下开始时覆盖到第几次 */
+  private changes = 0;
+  private pending: { covers: number; result: Promise<BuildResult> } | null = null;
   private last: BuildResult | null = null;
   private dirty = new Set<ChangeKind>(['config', 'wxml', 'wxss', 'js']);
   private wxmlCache: { full: string; cut: string } | null = null;
@@ -58,6 +62,7 @@ export class AppBuilder {
   invalidate(changedFiles: string[] = []): boolean {
     if (changedFiles.length === 0) {
       ['config', 'wxml', 'wxss', 'js'].forEach(kind => this.dirty.add(kind as ChangeKind));
+      this.changes++;
       return true;
     }
 
@@ -73,17 +78,28 @@ export class AppBuilder {
         this.dirty.add('wxss');
       }
     }
+    if (relevant) this.changes++;
     return relevant;
   }
 
-  build(): Promise<BuildResult> {
-    if (this.dirty.size === 0 && this.last) return Promise.resolve(this.last);
-    if (!this.pending) {
-      this.pending = this.doBuild().finally(() => {
-        this.pending = null;
-      });
+  /**
+   * 返回包含调用前所有变化的构建结果。并发调用共享同一次构建；
+   * 进行中的构建开始得比最近一次变化早时（可能已读到旧文件），等它结束后再构建一次
+   */
+  async build(): Promise<BuildResult> {
+    const wanted = this.changes;
+    for (;;) {
+      if (!this.pending && this.dirty.size === 0 && this.last) return this.last;
+      if (!this.pending) {
+        const result = this.doBuild().finally(() => {
+          this.pending = null;
+        });
+        this.pending = { covers: this.changes, result };
+      }
+      const { covers, result } = this.pending;
+      const built = await result;
+      if (covers >= wanted) return built;
     }
-    return this.pending;
   }
 
   /**
@@ -132,7 +148,7 @@ export class AppBuilder {
       const workersDir = typeof app.workers === 'string' ? app.workers : app.workers?.path;
       const modules = this.project.listFiles(['.js'], workersDir ? [workersDir] : []);
 
-      const serviceTemplates = this.createServiceTemplates(app, units, unitJson, wxml.cut);
+      const serviceTemplates = this.createTemplates(app, units, unitJson, wxml.cut);
       const result: BuildResult = {
         version: ++this.version,
         wxConfig: createWxConfig({
@@ -146,6 +162,7 @@ export class AppBuilder {
         serviceTemplates,
         serviceBootstrap: this.createServiceBootstrap(serviceTemplates, units, modules),
         pageFrame: this.createPageFrame(app, units, unitJson, wxml.full, wxss),
+        pageTemplates: this.createTemplates(app, units, unitJson, wxml.full),
         pages,
         components,
         durationMs: Date.now() - start
@@ -184,8 +201,9 @@ export class AppBuilder {
     });
   }
 
-  private createServiceTemplates(app: AppJson, units: string[], unitJson: Map<string, any>, cutGwx: string): string {
-    const lines: string[] = [cutGwx, `__wxAppCode__["app.json"] = ${toJs(app)};`];
+  /** $gwx 加上各页面、组件的 json / wxml 注册；逻辑层用裁剪版 $gwx，渲染层用完整版 */
+  private createTemplates(app: AppJson, units: string[], unitJson: Map<string, any>, gwx: string): string {
+    const lines: string[] = [gwx, `__wxAppCode__["app.json"] = ${toJs(app)};`];
 
     for (const id of units) {
       lines.push(`__wxAppCode__[${toJs(id + '.json')}] = ${toJs(unitJson.get(id))};`);

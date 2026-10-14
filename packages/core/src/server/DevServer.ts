@@ -7,13 +7,14 @@
  *   /__wxa__/appservice.html   逻辑层
  *   /__wxa__/webview/<page>.html  渲染层（路径与页面一致，wxml 里的相对资源路径因此能正确解析）
  *   /__wxa__/module/<file>.js  单个业务 JS 模块
- *   /__wxa__/service-templates.js  逻辑层模板（热更新时重新下发）
+ *   /__wxa__/service-templates.js、page-templates.js  两层的模板（热更新时重新下发）
  *   /__baselib__/*             官方基础库
  *   /__wxa__/proxy?url=        网络代理
  *   /__wxa__/ws                文件变化通知：热更新（hot）或整页刷新（reload）
  *   其余路径                    小程序目录下的静态资源
  */
 
+import { createHash } from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -212,6 +213,10 @@ export class DevServer {
       res.type('js').send(build.serviceTemplates);
     }));
 
+    app.get('/__wxa__/page-templates.js', this.withBuild((build, _req, res) => {
+      res.type('js').send(build.pageTemplates);
+    }));
+
     app.get('/__wxa__/page-frame.js', this.withBuild((build, _req, res) => {
       res.type('js').send(build.pageFrame);
     }));
@@ -313,11 +318,19 @@ export class DevServer {
     // 项目目录下的 setup 文件不一定在小程序根目录（miniprogramRoot）里
     const watched = [this.project.root];
     if (this.setupFile && path.relative(this.project.root, this.setupFile).startsWith('..')) watched.push(this.setupFile);
+    // 构建工具（如 uni-app 的监听构建）每次保存都会重写全部产物，只有内容真的变了才算改动。
+    // 初次扫描时记下每个代码文件的内容指纹
+    const fingerprints = new Map<string, string>();
+    let scanned = false;
     this.watcher = chokidar.watch(watched, {
-      ignoreInitial: true,
       ignored: /(^|[/\\])(node_modules|\.git)([/\\]|$)/
     });
+    this.watcher.on('ready', () => {
+      scanned = true;
+    });
     this.watcher.on('all', (event, file) => {
+      const unchanged = updateFingerprint(fingerprints, file, event);
+      if (!scanned || unchanged) return;
       if (event !== 'change') structural = true;
       changed.add(path.relative(this.project.root, file).split(path.sep).join('/'));
       if (timer) clearTimeout(timer);
@@ -331,6 +344,26 @@ export class DevServer {
       if (client.readyState === WebSocket.OPEN) client.send(data);
     });
   }
+}
+
+const FINGERPRINTED = /\.(js|mjs|ts|json|wxml|wxss|wxs)$/;
+
+/** 记录文件的内容指纹；返回 true 表示内容与上次相同。图片等其他文件不读取，一律视为有变化 */
+function updateFingerprint(fingerprints: Map<string, string>, file: string, event: string): boolean {
+  if (event === 'unlink') {
+    fingerprints.delete(file);
+    return false;
+  }
+  if ((event !== 'add' && event !== 'change') || !FINGERPRINTED.test(file)) return false;
+  let next: string;
+  try {
+    next = createHash('sha1').update(fs.readFileSync(file)).digest('hex');
+  } catch {
+    return false;
+  }
+  const previous = fingerprints.get(file);
+  fingerprints.set(file, next);
+  return previous === next;
 }
 
 function resolveSetupFile(option: string | false | undefined, projectPath: string): string | null {

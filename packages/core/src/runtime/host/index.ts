@@ -85,7 +85,7 @@ function connectDevServer() {
 
 async function hotUpdate(update: HotUpdate) {
   const host = (window as any).__wxaHost as Host | undefined;
-  const files = [...update.templates.map(id => id + '.wxml'), ...update.pages.map(id => id + '.js')].join(', ');
+  const files = [...update.templates.map(id => id + '.wxml'), ...update.scripts.map(id => id + '.js')].join(', ');
   try {
     if (!host) throw new Error('宿主尚未启动');
     await applyHotUpdate(host, update);

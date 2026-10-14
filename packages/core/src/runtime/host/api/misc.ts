@@ -132,6 +132,17 @@ export function createMiscApis(appid: string): Record<string, ApiHandler> {
   return {
     ...fileApis,
 
+    // canvas 导出图片、拍照、录像的结果都经过这里。文件存在开发服务器上，
+    // 返回的是 http 地址：image、video 组件只原样使用 http(s) 地址
+    base64ToTempFilePath: async (args, { api }) => {
+      const type = String(args.fileType || 'png');
+      const bytes = Uint8Array.from(atob(String(args.base64Data || '')), char => char.charCodeAt(0));
+      const res = await fetch(`/__wxa__/tmp?type=${encodeURIComponent(type)}`, { method: 'POST', body: bytes });
+      if (!res.ok) return fail(api, await res.text());
+      const { url } = await res.json();
+      return ok(api, { tempFilePath: url });
+    },
+
     login: (_args, { api }) => ok(api, { code: `wxa_mock_code_${Date.now().toString(36)}` }),
     checkSession: () => undefined,
     authorize: () => undefined,

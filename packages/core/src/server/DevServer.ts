@@ -10,11 +10,12 @@
  *   /__wxa__/service-templates.js、page-templates.js  两层的模板（热更新时重新下发）
  *   /__baselib__/*             官方基础库
  *   /__wxa__/proxy?url=        网络代理
+ *   /__wxa__/tmp               临时文件：POST ?type=png 保存，返回可直接访问的地址
  *   /__wxa__/ws                文件变化通知：热更新（hot）或整页刷新（reload）
  *   其余路径                    小程序目录下的静态资源
  */
 
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -77,6 +78,8 @@ export class DevServer {
   private sockets: WebSocketServer | null = null;
   private watcher: FSWatcher | null = null;
   private address = '';
+  /** 运行时生成的临时文件（canvas 导出、拍照等），随服务器进程存在 */
+  private readonly tempFiles = new Map<string, Buffer>();
 
   constructor(private readonly options: DevServerOptions) {
     this.logger = options.logger || console;
@@ -224,6 +227,26 @@ export class DevServer {
     app.use('/__wxa__/runtime', express.static(this.runtimeDir(), { cacheControl: false }));
     app.use('/__baselib__', express.static(this.baseLib.dir, { maxAge: '1d' }));
     app.all('/__wxa__/proxy', express.raw({ type: () => true, limit: '100mb' }), handleProxy);
+
+    // 返回完整的 http 地址：image、video 组件只原样使用 http(s) 地址，其余的会被当成页面相对路径
+    app.post('/__wxa__/tmp', express.raw({ type: () => true, limit: '100mb' }), (req, res) => {
+      const type = String(req.query.type || 'png');
+      if (!/^[a-z0-9]+$/i.test(type)) {
+        res.status(400).type('text').send(`非法的文件类型 ${type}`);
+        return;
+      }
+      const name = `${randomUUID()}.${type}`;
+      this.tempFiles.set(name, Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
+      res.json({ url: `${req.protocol}://${req.get('host')}/__wxa__/tmp/${name}` });
+    });
+    app.get('/__wxa__/tmp/:name', (req, res) => {
+      const data = this.tempFiles.get(req.params.name);
+      if (!data) {
+        res.status(404).end();
+        return;
+      }
+      res.type(path.extname(req.params.name)).send(data);
+    });
 
     // 渲染层页面路径下的相对资源（如 ../../images/a.png）
     app.use('/__wxa__/webview', express.static(root));

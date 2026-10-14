@@ -6,6 +6,7 @@
  * 3. 渲染层：模拟手机屏幕尺寸，处理鼠标输入（见 installInput）
  */
 
+import { installApiStubs } from './sdkStubs';
 import type { FrameBridge, FrameKind, HostApi } from './types';
 
 type Listener = (data: unknown, webviewId?: number) => void;
@@ -39,6 +40,7 @@ if (kind === 'service') {
       if (key !== 'Protect') g[key] = globals[key];
     }
   };
+  hookRequire();
 } else {
   emulateDeviceScreen(host.device);
   installInput();
@@ -55,6 +57,32 @@ window.addEventListener('error', event => host.reportError(kind, webviewId, even
 window.addEventListener('unhandledrejection', event => host.reportError(kind, webviewId, event.reason));
 
 host.registerFrame(kind, window, bridge, webviewId);
+
+/**
+ * 基础库初始化完会把广告等缺伴生子包的接口改成「返回 undefined」的函数，占位只有在
+ * 业务代码执行前装才留得住 —— bootstrap 里 require 第一个业务模块就是那个时机。
+ *
+ * 这里用存取器占住 require 再等基础库赋值，而不是事后包装：基础库交出全局的方式按版本
+ * 而异（3.7.0 直接写 globalThis，并不调 __passWAServiceGlobal__），事后包装没有可靠的时机。
+ * installApiStubs 幂等，每次 require 都查一遍，不赌某一次调用的先后。
+ */
+function hookRequire() {
+  let real: unknown;
+  const wrapper = function (this: unknown, ...args: unknown[]) {
+    if (g.wx) installApiStubs(g.wx);
+    return (real as (...a: unknown[]) => unknown).apply(this, args);
+  };
+  try {
+    Object.defineProperty(g, 'require', {
+      configurable: true,
+      enumerable: true,
+      get: () => (typeof real === 'function' ? wrapper : real),
+      set: value => { real = value; }
+    });
+  } catch {
+    // 定义不了就算了，广告接口退回基础库原样（返回 undefined）
+  }
+}
 
 function createBridge(): FrameBridge & Record<string, unknown> {
   const onListeners: Record<string, Listener[]> = {};

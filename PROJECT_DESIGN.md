@@ -329,6 +329,7 @@ navigateTo(url)
   地区选择器的行政区划数据取自本机开发者工具（`js/libs/region_sub_strict*`），和基础库一样不随项目分发
 - **web-view**：网页放在所在页面渲染层里的 iframe 中，跟着页面显示、隐藏和关闭。设置了 X-Frame-Options 或
   CSP frame-ancestors 的网站不允许被嵌入，显示不出来；网页里的 `wx.miniProgram` 接口不可用。
+  网页内自己跳转时，同源网页报告新地址并触发 load，跨域网页读不到地址就不报；iframe 加载失败没有事件，binderror 不会触发。
   基础库拿到空的业务域名列表时会把 web-view 事件里的网页地址清空，所以拉取业务域名列表（`operateWXData` 的
   `webapi_getwxanetwork`）明确返回失败，基础库因此不做校验，等同开发者工具的「不校验业务域名」
 - **临时文件**：canvas 导出、拍照、录像的结果经 `base64ToTempFilePath` 存到开发服务器，返回 http 地址。

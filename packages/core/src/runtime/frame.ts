@@ -186,6 +186,7 @@ function emulateDeviceScreen(device: HostApi['device']) {
  * window.onload 再注入。开发者工具在文档加载完后才注入基础库，那边是立即注入；这里基础库随页面
  * 同步加载，首屏渲染早于 onload，canvas 这类挂载时测量尺寸的组件会量到没有样式时的大小。
  * 所以加载完成前赋给 window.onload 的回调改为在当前脚本执行完后立即运行，仍早于首屏渲染。
+ * 效果与开发者工具一致：那边每处都直接调用回调，多次赋值各自执行，window.onload 本身始终为空。
  */
 function runLoadCallbacksEarly() {
   let owner: object | null = window;

@@ -26,7 +26,14 @@ interface Position {
 }
 
 export function createWebViewApis({ documentOf, emitToWebview }: WebViewApiOptions): Record<string, ApiHandler> {
-  const views = new Map<number, { frame: HTMLIFrameElement; webviewId: number }>();
+  // 三个接口都由网页所在的渲染层调用，到那个文档里按 htmlId 找；不另存引用，页面关闭时随文档一起释放
+  const find = (webviewId: number, htmlId: unknown) =>
+    documentOf(webviewId)?.querySelector<HTMLIFrameElement>(`iframe[data-wxa-html-id="${Number(htmlId)}"]`) ?? null;
+
+  const reportStart = (webviewId: number, htmlId: number, src: string) =>
+    emitToWebview(webviewId, 'onWebviewStartLoad', { htmlId, src, isMainFrame: true });
+  const reportFinish = (webviewId: number, htmlId: number, src: string) =>
+    emitToWebview(webviewId, 'onWebviewFinishLoad', { htmlId, src });
 
   const place = (frame: HTMLIFrameElement, position?: Partial<Position>) => {
     if (!position) return;
@@ -39,41 +46,53 @@ export function createWebViewApis({ documentOf, emitToWebview }: WebViewApiOptio
     insertHTMLWebView: (args, { api, webviewId }) => {
       const doc = documentOf(webviewId);
       if (!doc) return fail(api, 'page not found');
-      // 页面关闭时基础库不一定调 removeHTMLWebView，跟着页面消失的网页在这里清掉
-      for (const [id, view] of views) if (!view.frame.isConnected) views.delete(id);
 
       const htmlId = Number(args.htmlId);
       const frame = doc.createElement('iframe');
+      frame.dataset.wxaHtmlId = String(htmlId);
       frame.style.cssText = 'position:fixed;z-index:2147483647;border:0;background:#fff';
       place(frame, args.position);
       frame.addEventListener('load', () => {
-        // 插入时先加载的 about:blank 不算
-        if (frame.dataset.src) emitToWebview(webviewId, 'onWebviewFinishLoad', { htmlId, src: frame.dataset.src });
+        const requested = frame.dataset.wxaLoading;
+        if (requested) {
+          delete frame.dataset.wxaLoading;
+          reportFinish(webviewId, htmlId, requested);
+          return;
+        }
+        // 网页里自己跳转的：同源时报告新地址；跨域读不到地址就不报，免得拿旧地址冒充
+        const src = readableUrl(frame);
+        if (!src || src === 'about:blank') return;
+        reportStart(webviewId, htmlId, src);
+        reportFinish(webviewId, htmlId, src);
       });
       doc.body.appendChild(frame);
-      views.set(htmlId, { frame, webviewId });
       return ok(api);
     },
 
-    updateHTMLWebView: (args, { api }) => {
-      const htmlId = Number(args.htmlId);
-      const view = views.get(htmlId);
-      if (!view) return fail(api, 'web-view not found');
-      place(view.frame, args.position);
+    updateHTMLWebView: (args, { api, webviewId }) => {
+      const frame = find(webviewId, args.htmlId);
+      if (!frame) return fail(api, 'web-view not found');
+      place(frame, args.position);
       if (args.src) {
         const src = String(args.src);
-        view.frame.dataset.src = src;
-        emitToWebview(view.webviewId, 'onWebviewStartLoad', { htmlId, src, isMainFrame: true });
-        view.frame.src = src;
+        frame.dataset.wxaLoading = src;
+        reportStart(webviewId, Number(args.htmlId), src);
+        frame.src = src;
       }
       return ok(api);
     },
 
-    removeHTMLWebView: (args, { api }) => {
-      const htmlId = Number(args.htmlId);
-      views.get(htmlId)?.frame.remove();
-      views.delete(htmlId);
+    removeHTMLWebView: (args, { api, webviewId }) => {
+      find(webviewId, args.htmlId)?.remove();
       return ok(api);
     }
   };
+}
+
+function readableUrl(frame: HTMLIFrameElement): string | null {
+  try {
+    return frame.contentWindow?.location.href ?? null;
+  } catch {
+    return null;
+  }
 }

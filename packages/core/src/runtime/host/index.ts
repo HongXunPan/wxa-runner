@@ -5,6 +5,7 @@
 import type { AppInfo } from '../types';
 import { Host, LaunchTarget } from './Host';
 import { applyHotUpdate, HotUpdate } from './hmr';
+import { reloadKeepingPageStack, reopenPages, takeSavedPageStack } from './pageStackRestore';
 import { applySetup, formatSetupSummary } from './setup';
 import { installTestApi } from './testApi';
 import { PhoneShell } from './ui/PhoneShell';
@@ -30,7 +31,10 @@ async function main() {
   installTestApi(host, ready);
 
   if (info.setup && !(await runSetup(host, info.setup))) return;
-  await host.start(launchTarget(info));
+  // 记下的页面栈要等确定能启动时再取：编译或 setup 出错时留着，修好后的那次刷新还能用
+  const [launch, ...rest] = takeSavedPageStack(info.pages);
+  await host.start(launch ?? launchTarget(info));
+  await reopenPages(host, rest);
   markReady();
 }
 
@@ -73,18 +77,22 @@ function connectDevServer() {
   let hotChain = Promise.resolve();
   socket.onmessage = event => {
     const message = JSON.parse(event.data);
-    if (message.type === 'reload') location.reload();
+    if (message.type === 'reload') reloadKeepingPageStack(currentHost());
     if (message.type === 'hot') hotChain = hotChain.then(() => hotUpdate(message));
     if (message.type === 'error') {
-      const host = (window as any).__wxaHost as Host | undefined;
+      const host = currentHost();
       if (host) host.shell.showError(`编译失败\n\n${message.message}`);
       else location.reload();
     }
   };
 }
 
+function currentHost(): Host | undefined {
+  return (window as any).__wxaHost;
+}
+
 async function hotUpdate(update: HotUpdate) {
-  const host = (window as any).__wxaHost as Host | undefined;
+  const host = currentHost();
   const files = [...update.templates.map(id => id + '.wxml'), ...update.scripts.map(id => id + '.js')].join(', ');
   try {
     if (!host) throw new Error('宿主尚未启动');
@@ -92,7 +100,7 @@ async function hotUpdate(update: HotUpdate) {
     console.info(`[wxa-runner] 热更新完成：${files}`);
   } catch (error) {
     console.warn(`[wxa-runner] ${files} 无法热更新，整页刷新：`, error);
-    location.reload();
+    reloadKeepingPageStack(host);
   }
 }
 

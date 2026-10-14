@@ -17,6 +17,7 @@ export default defineConfig({
         'packages/core/src/runtime/host/index.ts',
         'packages/core/src/runtime/host/Host.ts',
         'packages/core/src/runtime/host/PageView.ts',
+        'packages/core/src/runtime/host/pageStackRestore.ts',
         'packages/core/src/runtime/host/testApi.ts',
         'packages/core/src/runtime/host/ui/**'
       ],

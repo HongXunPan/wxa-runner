@@ -122,8 +122,9 @@ export class Host implements HostApi {
 
   publish(kind: FrameKind, win: Window, event: string, data: unknown, webviewIds?: number[]) {
     if (kind === 'service') {
-      for (const id of webviewIds || []) {
-        const page = this.pages.get(Number(id));
+      // 不指定目标时发给所有页面：旧版 canvas 的绘制指令就是这样发的，由 canvasNumber 找到对应画布
+      const targets = webviewIds?.length ? webviewIds.map(id => this.pages.get(Number(id))) : this.livePages();
+      for (const page of targets) {
         page?.dispatch((bridge, target) => {
           const payload = cloneInto(target, data);
           queueMicrotask(() => bridge.__dispatchSub(event, payload, 0));

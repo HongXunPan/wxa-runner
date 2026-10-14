@@ -44,6 +44,7 @@ if (kind === 'service') {
 } else {
   emulateDeviceScreen(host.device);
   installInput();
+  runLoadCallbacksEarly();
 }
 
 overrideUserAgent();
@@ -178,6 +179,30 @@ function emulateDeviceScreen(device: HostApi['device']) {
   } catch {
     // 同上
   }
+}
+
+/**
+ * 基础库在文档没加载完时，把内置组件样式（wx-view 的 display、wx-canvas 的默认尺寸等）推迟到
+ * window.onload 再注入。开发者工具在文档加载完后才注入基础库，那边是立即注入；这里基础库随页面
+ * 同步加载，首屏渲染早于 onload，canvas 这类挂载时测量尺寸的组件会量到没有样式时的大小。
+ * 所以加载完成前赋给 window.onload 的回调改为在当前脚本执行完后立即运行，仍早于首屏渲染。
+ */
+function runLoadCallbacksEarly() {
+  let owner: object | null = window;
+  while (owner && !Object.getOwnPropertyDescriptor(owner, 'onload')) owner = Object.getPrototypeOf(owner);
+  const native = owner && Object.getOwnPropertyDescriptor(owner, 'onload');
+  if (!native?.get || !native.set) return;
+  Object.defineProperty(window, 'onload', {
+    configurable: true,
+    get: () => native.get!.call(window),
+    set(handler: unknown) {
+      if (typeof handler === 'function' && document.readyState !== 'complete') {
+        queueMicrotask(() => handler.call(window, new Event('load')));
+      } else {
+        native.set!.call(window, handler);
+      }
+    }
+  });
 }
 
 function overrideUserAgent() {

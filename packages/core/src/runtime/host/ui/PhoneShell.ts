@@ -4,7 +4,7 @@
 
 import type { DeviceProfile } from '../../types';
 import { menuButtonRect, NAVIGATION_BAR_HEIGHT, TAB_BAR_HEIGHT } from '../api/system';
-import { SHELL_CSS } from './styles';
+import { DEVICE_BEZEL, SHELL_CSS, STAGE_GAP, STAGE_PADDING } from './styles';
 
 export interface NavigationState {
   title: string;
@@ -56,9 +56,29 @@ export interface ActionSheetOptions {
   itemColor?: string;
 }
 
+type ScaleMode = 'fit' | '1';
+
+const SCALE_STORAGE_KEY = 'wxa-runner:scale';
+const MIN_SCALE = 0.5;
+
+/** 手动打开时默认适应窗口；自动化环境默认 1:1，截图和视觉基线不随窗口大小变化 */
+function loadScaleMode(): ScaleMode {
+  try {
+    const saved = localStorage.getItem(SCALE_STORAGE_KEY);
+    if (saved === 'fit' || saved === '1') return saved;
+  } catch {
+    // 存储不可用时用默认值
+  }
+  return navigator.webdriver ? '1' : 'fit';
+}
+
 export class PhoneShell {
   readonly pages: HTMLElement;
+  private readonly slot: HTMLElement;
   private readonly device: HTMLElement;
+  private readonly toolbar: HTMLElement;
+  private readonly scaleButton: HTMLButtonElement;
+  private scaleMode = loadScaleMode();
   private readonly statusBar: HTMLElement;
   private readonly navBar: HTMLElement;
   private readonly capsule: HTMLElement;
@@ -84,28 +104,35 @@ export class PhoneShell {
     const capsule = menuButtonRect(profile);
     root.innerHTML = `
       <div class="wxa-stage">
-        <div class="wxa-device${hasNotch ? ' has-notch' : ''}" style="width:${profile.screenWidth}px;height:${profile.screenHeight}px;--wxa-safe-bottom:${profile.safeAreaBottom}px">
-          <div class="wxa-statusbar" style="height:${profile.statusBarHeight}px">
-            <span class="wxa-statusbar-time">9:41</span>
-            <span class="wxa-statusbar-icons">${STATUS_ICONS}</span>
+        <div class="wxa-device-slot">
+          <div class="wxa-device${hasNotch ? ' has-notch' : ''}" style="width:${profile.screenWidth}px;height:${profile.screenHeight}px;--wxa-safe-bottom:${profile.safeAreaBottom}px">
+            <div class="wxa-statusbar" style="height:${profile.statusBarHeight}px">
+              <span class="wxa-statusbar-time">9:41</span>
+              <span class="wxa-statusbar-icons">${STATUS_ICONS}</span>
+            </div>
+            <div class="wxa-navbar">
+              <button class="wxa-navbar-back" title="返回" aria-label="返回">${BACK_ICON}</button>
+              <span class="wxa-navbar-loading"></span><span class="wxa-navbar-title"></span>
+            </div>
+            <div class="wxa-pages"></div>
+            <div class="wxa-tabbar is-hidden"></div>
+            <div class="wxa-capsule" style="top:${capsule.top}px;left:${capsule.left}px;width:${capsule.width}px;height:${capsule.height}px">
+              <span class="wxa-capsule-more">${MORE_ICON}</span><span class="wxa-capsule-close">${CLOSE_ICON}</span>
+            </div>
+            <div class="wxa-overlay"></div>
+            ${hasNotch ? '<div class="wxa-notch"></div>' : ''}
+            ${profile.safeAreaBottom ? '<div class="wxa-home-indicator"></div>' : ''}
           </div>
-          <div class="wxa-navbar">
-            <button class="wxa-navbar-back" title="返回" aria-label="返回">${BACK_ICON}</button>
-            <span class="wxa-navbar-loading"></span><span class="wxa-navbar-title"></span>
-          </div>
-          <div class="wxa-pages"></div>
-          <div class="wxa-tabbar is-hidden"></div>
-          <div class="wxa-capsule" style="top:${capsule.top}px;left:${capsule.left}px;width:${capsule.width}px;height:${capsule.height}px">
-            <span class="wxa-capsule-more">${MORE_ICON}</span><span class="wxa-capsule-close">${CLOSE_ICON}</span>
-          </div>
-          <div class="wxa-overlay"></div>
-          ${hasNotch ? '<div class="wxa-notch"></div>' : ''}
-          ${profile.safeAreaBottom ? '<div class="wxa-home-indicator"></div>' : ''}
         </div>
-        <div class="wxa-toolbar"><span class="wxa-route"></span><button class="wxa-reload">刷新</button></div>
+        <div class="wxa-toolbar">
+          <span class="wxa-route"></span><button class="wxa-scale"></button><button class="wxa-reload">刷新</button>
+        </div>
       </div>`;
 
+    this.slot = root.querySelector('.wxa-device-slot')!;
     this.device = root.querySelector('.wxa-device')!;
+    this.toolbar = root.querySelector('.wxa-toolbar')!;
+    this.scaleButton = root.querySelector('.wxa-scale')!;
     this.statusBar = root.querySelector('.wxa-statusbar')!;
     this.navBar = root.querySelector('.wxa-navbar')!;
     this.capsule = root.querySelector('.wxa-capsule')!;
@@ -116,6 +143,41 @@ export class PhoneShell {
     this.overlay = root.querySelector('.wxa-overlay')!;
     this.routeLabel = root.querySelector('.wxa-route')!;
     root.querySelector('.wxa-reload')!.addEventListener('click', () => location.reload());
+
+    this.scaleButton.addEventListener('click', () => {
+      this.scaleMode = this.scaleMode === 'fit' ? '1' : 'fit';
+      try {
+        localStorage.setItem(SCALE_STORAGE_KEY, this.scaleMode);
+      } catch {
+        // 只影响记住选择
+      }
+      this.applyScale();
+    });
+    window.addEventListener('resize', () => this.applyScale());
+    this.applyScale();
+  }
+
+  /**
+   * 窗口放不下时整体缩小手机。只用 transform：iframe 内的布局、字号、坐标都不变，
+   * Playwright 也能正确换算点击位置；CSS zoom 会让 Playwright 点击错位。
+   * transform 不改变占位，所以由外层 slot 按缩放后的尺寸占位。
+   */
+  private applyScale() {
+    const width = this.profile.screenWidth + DEVICE_BEZEL * 2;
+    const height = this.profile.screenHeight + DEVICE_BEZEL * 2;
+    let scale = 1;
+    if (this.scaleMode === 'fit') {
+      const availableWidth = window.innerWidth - STAGE_PADDING * 2;
+      const availableHeight = window.innerHeight - STAGE_PADDING * 2 - STAGE_GAP - this.toolbar.offsetHeight;
+      const fit = Math.floor(Math.min(availableWidth / width, availableHeight / height) * 100) / 100;
+      scale = Math.min(1, Math.max(MIN_SCALE, fit));
+    }
+    this.slot.style.width = `${width * scale}px`;
+    this.slot.style.height = `${height * scale}px`;
+    this.device.style.left = this.device.style.top = `${DEVICE_BEZEL * scale}px`;
+    this.device.style.transform = scale === 1 ? '' : `scale(${scale})`;
+    this.scaleButton.textContent = `${Math.round(scale * 100)}%`;
+    this.scaleButton.title = this.scaleMode === 'fit' ? '适应窗口，点击切换为实际大小' : '实际大小，点击切换为适应窗口';
   }
 
   onBack(handler: () => void) {

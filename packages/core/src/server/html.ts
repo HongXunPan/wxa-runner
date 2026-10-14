@@ -78,6 +78,9 @@ export function webviewHtml(build: BuildResult, pagePath: string, webviewId: num
 <title>${escapeHtml(pagePath)}</title>
 <!-- 小程序渲染层的默认字号是 16px；不声明的话会继承浏览器设置里的默认字号。放在最前面，基础库和页面样式都能覆盖它 -->
 <style>html{font-size:16px}</style>
+<!-- 真机的滚动条是不占布局的浮层；桌面浏览器的常规滚动条和自定义 ::-webkit-scrollbar 会挤窄页面，一律隐藏。
+     scrollbar-width 优先于 ::-webkit-scrollbar，页面样式不会再把滚动条加回来 -->
+<style>*{scrollbar-width:none}::-webkit-scrollbar{display:none}</style>
 <script>var __wxConfig = ${toJs(wxConfig)};</script>
 <script src="/__wxa__/runtime/frame.js" data-kind="webview" data-webview-id="${id}"></script>
 <script src="/__baselib__/WAWebview.js"></script>

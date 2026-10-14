@@ -142,6 +142,69 @@ describe.skipIf(!ready)('showcase 示例', () => {
     expect(await padding('#detail-inline', 'Top')).toBe('0px');
   });
 
+  it('自动化环境默认按 1:1 显示手机，截图即真实尺寸', async () => {
+    await open();
+    expect((await page.locator('.wxa-device').boundingBox())!.height).toBe(812);
+    expect(await page.textContent('.wxa-scale')).toBe('100%');
+  });
+
+  it('选择适应窗口后，放不下时整体缩小手机，页面内的尺寸与交互不受影响', async () => {
+    const small = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    try {
+      await small.addInitScript(() => localStorage.setItem('wxa-runner:scale', 'fit'));
+      await small.goto(base + '/');
+      await small.evaluate(() => window.__wxa_test_api__.ready);
+
+      const device = (await small.locator('.wxa-device').boundingBox())!;
+      const toolbar = (await small.locator('.wxa-toolbar').boundingBox())!;
+      expect(device.height).toBeLessThan(812);
+      expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(720);
+      expect(await small.textContent('.wxa-scale')).toBe(`${Math.round(device.height / 812 * 100)}%`);
+
+      const current = small.frameLocator('iframe[data-current]');
+      expect(await current.locator('.card').first().evaluate(el => [getComputedStyle(el).padding, window.innerWidth]))
+        .toEqual(['12px', 375]);
+      const label = current.locator('wx-counter .counter--label');
+      const count = Number((await label.textContent())!.match(/\d+/)![0]);
+      await current.locator('wx-counter wx-button').click();
+      await label.filter({ hasText: `组件计数: ${count + 1}` }).waitFor();
+
+      // 切回实际大小，选择会被记住
+      await small.click('.wxa-scale');
+      expect((await small.locator('.wxa-device').boundingBox())!.height).toBe(812);
+      expect(await small.textContent('.wxa-scale')).toBe('100%');
+      expect(await small.evaluate(() => localStorage.getItem('wxa-runner:scale'))).toBe('1');
+    } finally {
+      await small.close();
+    }
+  });
+
+  it('页面和滚动容器不显示滚动条，也不占用页面宽度（与真机的浮层滚动条一致）', async () => {
+    // Playwright 默认用 --hide-scrollbars 启动，这里去掉它，按普通浏览器的行为验证
+    const plain = await chromium.launch({ executablePath: CHROME, ignoreDefaultArgs: ['--hide-scrollbars'] });
+    try {
+      const tab = await plain.newPage();
+      await tab.goto(base + '/?path=pages/detail/detail&id=1');
+      await tab.evaluate(() => window.__wxa_test_api__.ready);
+      const widths = await tab.frameLocator('iframe[data-current]').locator('body').evaluate(body => {
+        // 自定义滚动条在任何系统上都会占宽度，用它模拟接鼠标时的常规滚动条
+        const style = document.createElement('style');
+        style.textContent = '::-webkit-scrollbar { width: 8px; background: #eee; }';
+        document.head.appendChild(style);
+        const box = document.createElement('div');
+        box.style.cssText = 'height: 100px; overflow: auto';
+        box.innerHTML = '<div style="height: 500px"></div>';
+        const tall = document.createElement('div');
+        tall.style.height = '3000px';
+        body.append(box, tall);
+        return { page: document.documentElement.clientWidth, box: box.offsetWidth - box.clientWidth };
+      });
+      expect(widths).toEqual({ page: 375, box: 0 });
+    } finally {
+      await plain.close();
+    }
+  });
+
   it('通过 ?path= 直接打开指定页面，Storage 可以从测试中读取', async () => {
     const frame = await open('/?path=pages/detail/detail&id=7');
     expect(await frame.textContent('#detail-id')).toBe('id = 7');

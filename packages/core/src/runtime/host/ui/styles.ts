@@ -1,7 +1,13 @@
+/** 外壳边框（box-shadow 最外圈）宽度，缩放时计入手机外框尺寸 */
+export const DEVICE_BEZEL = 13;
+export const STAGE_PADDING = 24;
+export const STAGE_GAP = 16;
+
 export const SHELL_CSS = `
 html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50% 0%, #f6f7f9 0%, #e6e9ee 100%); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
-.wxa-stage { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 36px 0 24px; box-sizing: border-box; }
-.wxa-device { position: relative; flex: none; overflow: hidden; background: #fff; border-radius: 6px; display: flex; flex-direction: column; box-shadow: 0 0 0 11px #111214, 0 0 0 12px #3a3b3f, 0 0 0 13px #1b1c1f, 0 32px 64px -12px rgba(15,23,42,.35), 0 14px 28px -8px rgba(15,23,42,.18); }
+.wxa-stage { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: ${STAGE_GAP}px; padding: ${STAGE_PADDING}px; box-sizing: border-box; }
+.wxa-device-slot { position: relative; flex: none; }
+.wxa-device { position: absolute; transform-origin: 0 0; overflow: hidden; background: #fff; border-radius: 6px; display: flex; flex-direction: column; box-shadow: 0 0 0 ${DEVICE_BEZEL - 2}px #111214, 0 0 0 ${DEVICE_BEZEL - 1}px #3a3b3f, 0 0 0 ${DEVICE_BEZEL}px #1b1c1f, 0 32px 64px -12px rgba(15,23,42,.35), 0 14px 28px -8px rgba(15,23,42,.18); }
 .wxa-device.has-notch { border-radius: 40px; }
 .wxa-notch { position: absolute; top: 0; left: 50%; z-index: 30; width: 209px; height: 30px; transform: translateX(-50%); background: #000; border-radius: 0 0 20px 20px; pointer-events: none; }
 .wxa-notch::before, .wxa-notch::after { content: ''; position: absolute; top: 0; width: 6px; height: 6px; }
@@ -53,6 +59,7 @@ html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50
 .wxa-error { position: absolute; inset: 0; z-index: 20; overflow: auto; padding: 20px; background: #fff5f5; color: #c00; font: 12px/1.6 Menlo, monospace; white-space: pre-wrap; }
 .wxa-toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-radius: 999px; background: rgba(255,255,255,.7); box-shadow: 0 1px 2px rgba(15,23,42,.08); font-size: 12px; color: #555; }
 .wxa-toolbar button { border: 0; background: #111214; color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.wxa-toolbar .wxa-scale { min-width: 52px; background: #fff; color: #333; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); font-variant-numeric: tabular-nums; }
 .wxa-route { font-family: Menlo, monospace; }
 @keyframes wxa-spin { to { transform: rotate(360deg); } }
 `;

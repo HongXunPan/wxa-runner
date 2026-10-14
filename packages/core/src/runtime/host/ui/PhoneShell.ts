@@ -1,9 +1,9 @@
 /**
- * 模拟手机外壳：状态栏、导航栏、页面容器、tabBar 和系统弹层
+ * 模拟手机外壳：刘海、状态栏、导航栏、胶囊按钮、页面容器、tabBar 和系统弹层
  */
 
 import type { DeviceProfile } from '../../types';
-import { NAVIGATION_BAR_HEIGHT, TAB_BAR_HEIGHT } from '../api/system';
+import { menuButtonRect, NAVIGATION_BAR_HEIGHT, TAB_BAR_HEIGHT } from '../api/system';
 import { SHELL_CSS } from './styles';
 
 export interface NavigationState {
@@ -54,6 +54,7 @@ export class PhoneShell {
   private readonly device: HTMLElement;
   private readonly statusBar: HTMLElement;
   private readonly navBar: HTMLElement;
+  private readonly capsule: HTMLElement;
   private readonly navTitle: HTMLElement;
   private readonly backButton: HTMLButtonElement;
   private readonly tabBar: HTMLElement;
@@ -71,18 +72,28 @@ export class PhoneShell {
     style.textContent = SHELL_CSS;
     document.head.appendChild(style);
 
+    // 刘海屏的状态栏比传统机型（20px）高，以此区分是否绘制刘海
+    const hasNotch = profile.statusBarHeight > 20;
+    const capsule = menuButtonRect(profile);
     root.innerHTML = `
       <div class="wxa-stage">
-        <div class="wxa-device" style="width:${profile.screenWidth}px;height:${profile.screenHeight}px">
-          <div class="wxa-statusbar" style="height:${profile.statusBarHeight}px"><span>9:41</span><span>100%</span></div>
+        <div class="wxa-device${hasNotch ? ' has-notch' : ''}" style="width:${profile.screenWidth}px;height:${profile.screenHeight}px;--wxa-safe-bottom:${profile.safeAreaBottom}px">
+          <div class="wxa-statusbar" style="height:${profile.statusBarHeight}px">
+            <span class="wxa-statusbar-time">9:41</span>
+            <span class="wxa-statusbar-icons">${STATUS_ICONS}</span>
+          </div>
           <div class="wxa-navbar">
-            <button class="wxa-navbar-back" title="返回" aria-label="返回">‹</button>
+            <button class="wxa-navbar-back" title="返回" aria-label="返回">${BACK_ICON}</button>
             <span class="wxa-navbar-loading"></span><span class="wxa-navbar-title"></span>
-            <div class="wxa-capsule"></div>
           </div>
           <div class="wxa-pages"></div>
           <div class="wxa-tabbar is-hidden"></div>
+          <div class="wxa-capsule" style="top:${capsule.top}px;left:${capsule.left}px;width:${capsule.width}px;height:${capsule.height}px">
+            <span class="wxa-capsule-more">${MORE_ICON}</span><span class="wxa-capsule-close">${CLOSE_ICON}</span>
+          </div>
           <div class="wxa-overlay"></div>
+          ${hasNotch ? '<div class="wxa-notch"></div>' : ''}
+          ${profile.safeAreaBottom ? '<div class="wxa-home-indicator"></div>' : ''}
         </div>
         <div class="wxa-toolbar"><span class="wxa-route"></span><button class="wxa-reload">刷新</button></div>
       </div>`;
@@ -90,6 +101,7 @@ export class PhoneShell {
     this.device = root.querySelector('.wxa-device')!;
     this.statusBar = root.querySelector('.wxa-statusbar')!;
     this.navBar = root.querySelector('.wxa-navbar')!;
+    this.capsule = root.querySelector('.wxa-capsule')!;
     this.navTitle = root.querySelector('.wxa-navbar-title')!;
     this.backButton = root.querySelector('.wxa-navbar-back')!;
     this.pages = root.querySelector('.wxa-pages')!;
@@ -122,9 +134,11 @@ export class PhoneShell {
     this.navBar.classList.toggle('is-hidden', custom);
     this.navBar.style.background = backgroundColor;
     this.navBar.style.color = color;
-    // 自定义导航栏时页面从屏幕顶部开始绘制，状态栏浮在页面上
+    // 自定义导航栏时页面从屏幕顶部开始绘制，状态栏浮在页面上；
+    // 与微信一致，状态栏文字和胶囊配色仍跟随 navigationBarTextStyle
     this.statusBar.style.background = custom ? 'transparent' : backgroundColor;
-    this.statusBar.style.color = custom ? '#000' : color;
+    this.statusBar.style.color = color;
+    this.capsule.classList.toggle('is-light', textStyle !== 'black');
     this.statusBar.style.position = custom ? 'absolute' : '';
     this.statusBar.style.left = this.statusBar.style.right = custom ? '0' : '';
     this.statusBar.style.zIndex = custom ? '5' : '';
@@ -168,12 +182,16 @@ export class PhoneShell {
     });
   }
 
-  /** 页面可用高度，与 getSystemInfo().windowHeight 对应 */
+  /** 页面可用高度，与 getSystemInfo().windowHeight 对应；tabBar 会连同底部安全区一起占掉 */
   windowHeight(): number {
-    const { custom } = this.navigation;
     return this.profile.screenHeight
-      - (custom ? 0 : this.profile.statusBarHeight + NAVIGATION_BAR_HEIGHT)
-      - (this.tabBarVisible ? TAB_BAR_HEIGHT : 0);
+      - this.screenTop()
+      - (this.tabBarVisible ? TAB_BAR_HEIGHT + this.profile.safeAreaBottom : 0);
+  }
+
+  /** 页面窗口顶部到屏幕顶部的距离，与 getWindowInfo().screenTop 对应 */
+  screenTop(): number {
+    return this.navigation.custom ? 0 : this.profile.statusBarHeight + NAVIGATION_BAR_HEIGHT;
   }
 
   showToast(options: ToastOptions) {
@@ -300,3 +318,18 @@ function element(tag: string, className: string, text?: string): HTMLElement {
 function maskElement(dim: boolean): HTMLElement {
   return element('div', 'wxa-mask' + (dim ? ' is-dim' : ''));
 }
+
+const BACK_ICON = '<svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const MORE_ICON = '<svg width="22" height="8" viewBox="0 0 22 8" fill="currentColor"><circle cx="3.5" cy="4" r="2.3"/><circle cx="11" cy="4" r="3.3"/><circle cx="18.5" cy="4" r="2.3"/></svg>';
+
+const CLOSE_ICON = '<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="10" r="3.4" fill="currentColor"/></svg>';
+
+const STATUS_ICONS = [
+  // 信号
+  '<svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx=".8"/><rect x="4.6" y="5" width="3" height="6" rx=".8"/><rect x="9.2" y="2.6" width="3" height="8.4" rx=".8"/><rect x="13.8" y="0" width="3" height="11" rx=".8"/></svg>',
+  // Wi-Fi
+  '<svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><path d="M8 11.2L5.45 8.65A3.6 3.6 0 0 1 10.55 8.65ZM2.77 5.97A7.4 7.4 0 0 1 13.23 5.97L11.68 7.52A5.2 5.2 0 0 0 4.32 7.52ZM0.08 3.28A11.2 11.2 0 0 1 15.92 3.28L14.36 4.84A9 9 0 0 0 1.64 4.84Z"/></svg>',
+  // 电池
+  '<svg width="25" height="12" viewBox="0 0 25 12"><rect x=".5" y=".5" width="21.5" height="11" rx="3.2" fill="none" stroke="currentColor" stroke-opacity=".4"/><rect x="2" y="2" width="18.5" height="8" rx="1.8" fill="currentColor"/><path d="M23.4 4v4a2.2 2.2 0 0 0 0-4z" fill="currentColor" fill-opacity=".45"/></svg>'
+].join('');

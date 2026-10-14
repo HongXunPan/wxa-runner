@@ -41,11 +41,12 @@ export interface DevServerOptions {
 }
 
 export const DEFAULT_DEVICE: DeviceProfile = {
-  model: 'iPhone 6/7/8',
+  model: 'iPhone X',
   screenWidth: 375,
-  screenHeight: 667,
-  pixelRatio: 2,
-  statusBarHeight: 20,
+  screenHeight: 812,
+  pixelRatio: 3,
+  statusBarHeight: 44,
+  safeAreaBottom: 34,
   system: 'iOS 16.0',
   platform: 'devtools'
 };

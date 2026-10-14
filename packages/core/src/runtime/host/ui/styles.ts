@@ -1,18 +1,34 @@
 export const SHELL_CSS = `
-html, body { margin: 0; height: 100%; background: #eef0f3; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; }
-.wxa-stage { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px 0; box-sizing: border-box; }
-.wxa-device { position: relative; overflow: hidden; background: #fff; border-radius: 28px; box-shadow: 0 0 0 10px #1f1f1f, 0 18px 50px rgba(0,0,0,.25); display: flex; flex-direction: column; }
-.wxa-statusbar { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; font-size: 12px; font-weight: 600; box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50% 0%, #f6f7f9 0%, #e6e9ee 100%); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+.wxa-stage { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 36px 0 24px; box-sizing: border-box; }
+.wxa-device { position: relative; flex: none; overflow: hidden; background: #fff; border-radius: 6px; display: flex; flex-direction: column; box-shadow: 0 0 0 11px #111214, 0 0 0 12px #3a3b3f, 0 0 0 13px #1b1c1f, 0 32px 64px -12px rgba(15,23,42,.35), 0 14px 28px -8px rgba(15,23,42,.18); }
+.wxa-device.has-notch { border-radius: 40px; }
+.wxa-notch { position: absolute; top: 0; left: 50%; z-index: 30; width: 209px; height: 30px; transform: translateX(-50%); background: #000; border-radius: 0 0 20px 20px; pointer-events: none; }
+.wxa-notch::before, .wxa-notch::after { content: ''; position: absolute; top: 0; width: 6px; height: 6px; }
+.wxa-notch::before { left: -6px; background: radial-gradient(circle at 0 100%, transparent 5.5px, #000 6px); }
+.wxa-notch::after { right: -6px; background: radial-gradient(circle at 100% 100%, transparent 5.5px, #000 6px); }
+.wxa-home-indicator { position: absolute; bottom: 8px; left: 50%; z-index: 30; width: 134px; height: 5px; transform: translateX(-50%); border-radius: 3px; background: rgba(0,0,0,.85); pointer-events: none; }
+.wxa-statusbar { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; font-size: 12px; font-weight: 600; box-sizing: border-box; user-select: none; }
+.wxa-statusbar-icons { display: flex; align-items: center; gap: 5px; }
+.wxa-statusbar svg { display: block; }
+.has-notch .wxa-statusbar { display: grid; grid-template-columns: 1fr 209px 1fr; align-items: start; padding: 15px 0 0; font-size: 15px; letter-spacing: -.2px; }
+.has-notch .wxa-statusbar-time { grid-column: 1; justify-self: center; line-height: 20px; }
+.has-notch .wxa-statusbar-icons { grid-column: 3; justify-self: center; height: 20px; }
 .wxa-navbar { flex: none; height: 44px; position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .wxa-navbar.is-hidden, .wxa-statusbar.is-hidden { display: none; }
-.wxa-navbar-title { font-size: 17px; font-weight: 600; max-width: 60%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.wxa-navbar-back { position: absolute; left: 4px; top: 0; height: 44px; width: 44px; border: 0; background: none; color: inherit; font-size: 28px; line-height: 40px; cursor: pointer; }
+.wxa-navbar-title { font-size: 17px; font-weight: 600; max-width: calc(100% - 204px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wxa-navbar-back { position: absolute; left: 4px; top: 0; height: 44px; width: 44px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .wxa-navbar-loading { width: 14px; height: 14px; margin-right: 6px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: wxa-spin .8s linear infinite; display: none; }
 .wxa-navbar.is-loading .wxa-navbar-loading { display: inline-block; }
-.wxa-capsule { position: absolute; right: 7px; top: 6px; width: 87px; height: 32px; box-sizing: border-box; border-radius: 16px; border: 1px solid rgba(0,0,0,.12); background: rgba(255,255,255,.6); }
+.wxa-capsule { position: absolute; z-index: 6; display: flex; align-items: center; box-sizing: border-box; border-radius: 16px; border: .5px solid rgba(0,0,0,.12); background: rgba(255,255,255,.62); color: #000; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); user-select: none; }
+.wxa-capsule.is-light { border-color: rgba(255,255,255,.28); background: rgba(0,0,0,.18); color: #fff; }
+.wxa-capsule > span { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
+.wxa-capsule > span + span { position: relative; }
+.wxa-capsule > span + span::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; background: currentColor; opacity: .25; transform: scaleX(.5); }
+.wxa-capsule svg { display: block; }
 .wxa-pages { flex: 1; position: relative; overflow: hidden; }
 .wxa-pages iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
-.wxa-tabbar { flex: none; height: 50px; display: flex; border-top: 1px solid rgba(0,0,0,.1); box-sizing: border-box; }
+.wxa-tabbar { flex: none; height: calc(50px + var(--wxa-safe-bottom, 0px)); padding-bottom: var(--wxa-safe-bottom, 0px); display: flex; border-top: .5px solid rgba(0,0,0,.1); box-sizing: border-box; }
 .wxa-tabbar.is-hidden { display: none; }
 .wxa-tabbar-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; cursor: pointer; user-select: none; gap: 2px; }
 .wxa-tabbar-item img { width: 24px; height: 24px; }
@@ -35,8 +51,8 @@ html, body { margin: 0; height: 100%; background: #eef0f3; font-family: -apple-s
 .wxa-actionsheet button { display: block; width: 100%; height: 56px; border: 0; border-top: 1px solid rgba(0,0,0,.06); background: #fff; font-size: 17px; cursor: pointer; }
 .wxa-actionsheet .wxa-actionsheet-cancel { margin-top: 8px; border-top: 0; }
 .wxa-error { position: absolute; inset: 0; z-index: 20; overflow: auto; padding: 20px; background: #fff5f5; color: #c00; font: 12px/1.6 Menlo, monospace; white-space: pre-wrap; }
-.wxa-toolbar { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #666; }
-.wxa-toolbar button { border: 1px solid #ccc; background: #fff; border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+.wxa-toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-radius: 999px; background: rgba(255,255,255,.7); box-shadow: 0 1px 2px rgba(15,23,42,.08); font-size: 12px; color: #555; }
+.wxa-toolbar button { border: 0; background: #111214; color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
 .wxa-route { font-family: Menlo, monospace; }
 @keyframes wxa-spin { to { transform: rotate(360deg); } }
 `;

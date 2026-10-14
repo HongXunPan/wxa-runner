@@ -33,6 +33,8 @@ export interface DeviceProfile {
   screenHeight: number;
   pixelRatio: number;
   statusBarHeight: number;
+  /** 底部安全区高度（Home Indicator），无刘海机型为 0 */
+  safeAreaBottom: number;
   system: string;
   platform: string;
 }

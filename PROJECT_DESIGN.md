@@ -292,7 +292,7 @@ navigateTo(url)
 | 模块 | 内容 |
 | --- | --- |
 | storage | localStorage，按 appid 和 storageId 隔离；原样保存基础库序列化后的数据和 dataType；渲染层用的 GlobalStorage（cookie） |
-| system | 以模拟设备（默认 375×667 @2x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
+| system | 以模拟设备（默认 iPhone X，375×812 @3x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
 | network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
 | misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志）、登录等开放接口的模拟数据、剪贴板 |

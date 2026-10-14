@@ -371,7 +371,8 @@ export class Host implements HostApi {
       ...createSystemApis({
         device: this.device,
         baseLibVersion: this.info.baseLibVersion,
-        windowHeight: () => this.shell.windowHeight()
+        windowHeight: () => this.shell.windowHeight(),
+        screenTop: () => this.shell.screenTop()
       }),
       ...createNetworkApis({
         emit: (event, data) => this.emitToService(event, data),

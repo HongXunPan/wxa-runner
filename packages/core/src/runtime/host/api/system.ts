@@ -10,31 +10,48 @@ export interface SystemApiOptions {
   baseLibVersion: string;
   /** 当前页面可用高度（扣除导航栏、tabBar） */
   windowHeight: () => number;
+  /** 当前页面窗口顶部到屏幕顶部的距离，自定义导航栏时为 0 */
+  screenTop: () => number;
 }
 
 export const NAVIGATION_BAR_HEIGHT = 44;
 export const TAB_BAR_HEIGHT = 50;
 
+/** 胶囊按钮位置，外壳绘制和 getMenuButtonBoundingClientRect 共用 */
+export function menuButtonRect(device: DeviceProfile) {
+  const width = 87;
+  const height = 32;
+  const top = device.statusBarHeight + 6;
+  const right = device.screenWidth - 7;
+  return { width, height, top, right, bottom: top + height, left: right - width };
+}
+
 export function createSystemApis(options: SystemApiOptions): Record<string, ApiHandler> {
   const { device } = options;
 
-  const windowInfo = () => ({
-    pixelRatio: device.pixelRatio,
-    screenWidth: device.screenWidth,
-    screenHeight: device.screenHeight,
-    windowWidth: device.screenWidth,
-    windowHeight: options.windowHeight(),
-    statusBarHeight: device.statusBarHeight,
-    safeArea: {
-      left: 0,
-      right: device.screenWidth,
-      top: device.statusBarHeight,
-      bottom: device.screenHeight,
-      width: device.screenWidth,
-      height: device.screenHeight - device.statusBarHeight
-    },
-    screenTop: device.statusBarHeight + NAVIGATION_BAR_HEIGHT
-  });
+  const windowInfo = () => {
+    const safeBottom = device.screenHeight - device.safeAreaBottom;
+    return {
+      pixelRatio: device.pixelRatio,
+      screenWidth: device.screenWidth,
+      screenHeight: device.screenHeight,
+      windowWidth: device.screenWidth,
+      windowHeight: options.windowHeight(),
+      windowTop: 0,
+      windowBottom: 0,
+      statusBarHeight: device.statusBarHeight,
+      safeArea: {
+        left: 0,
+        right: device.screenWidth,
+        top: device.statusBarHeight,
+        bottom: safeBottom,
+        width: device.screenWidth,
+        height: safeBottom - device.statusBarHeight
+      },
+      safeAreaInsets: { top: device.statusBarHeight, left: 0, right: 0, bottom: device.safeAreaBottom },
+      screenTop: options.screenTop()
+    };
+  };
 
   const deviceInfo = () => ({
     brand: 'devtools',
@@ -109,11 +126,7 @@ export function createSystemApis(options: SystemApiOptions): Record<string, ApiH
     getNetworkType: (_args, { api }) => ok(api, { networkType: 'wifi', signalStrength: 100, hasSystemProxy: false }),
     getBatteryInfo: (_args, { api }) => ok(api, { level: 100, isCharging: true }),
     getBatteryInfoSync: (_args, { api }) => ok(api, { level: 100, isCharging: true }),
-    getMenuButtonBoundingClientRect: (_args, { api }) => {
-      const top = device.statusBarHeight + 6;
-      const right = device.screenWidth - 7;
-      return ok(api, { width: 87, height: 32, top, right, bottom: top + 32, left: right - 87 });
-    },
+    getMenuButtonBoundingClientRect: (_args, { api }) => ok(api, menuButtonRect(device)),
     getScreenBrightness: (_args, { api }) => ok(api, { value: 0.8 }),
     setScreenBrightness: () => undefined,
     setKeepScreenOn: () => undefined,

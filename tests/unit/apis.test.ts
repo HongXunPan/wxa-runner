@@ -12,14 +12,14 @@ import type { PhoneShell } from '../../packages/core/src/runtime/host/ui/PhoneSh
 
 const device = {
   model: 'iPhone 6/7/8', screenWidth: 375, screenHeight: 667, pixelRatio: 2,
-  statusBarHeight: 20, system: 'iOS 16.0', platform: 'devtools'
+  statusBarHeight: 20, safeAreaBottom: 0, system: 'iOS 16.0', platform: 'devtools'
 };
 
 const call = (apis: Record<string, ApiHandler>, api: string, args: object = {}) =>
   apis[api](args, { api, from: 'service', webviewId: 1 }) as any;
 
 describe('系统信息', () => {
-  const apis = createSystemApis({ device, baseLibVersion: '3.7.0', windowHeight: () => 553 });
+  const apis = createSystemApis({ device, baseLibVersion: '3.7.0', windowHeight: () => 553, screenTop: () => 64 });
 
   it('getSystemInfo 合并设备、窗口和基础库信息', () => {
     expect(call(apis, 'getSystemInfoSync')).toMatchObject({
@@ -33,6 +33,17 @@ describe('系统信息', () => {
     expect(windowInfo).toMatchObject({ windowHeight: 553, pixelRatio: 2 });
     expect(windowInfo.model).toBeUndefined();
     expect(call(apis, 'getSystemInfo', { type: 'appBaseInfo' })).toMatchObject({ SDKVersion: '3.7.0' });
+  });
+
+  it('刘海屏的安全区扣除状态栏和底部 Home Indicator', () => {
+    const iphoneX = { ...device, model: 'iPhone X', screenHeight: 812, pixelRatio: 3, statusBarHeight: 44, safeAreaBottom: 34 };
+    const xApis = createSystemApis({ device: iphoneX, baseLibVersion: '3.7.0', windowHeight: () => 812, screenTop: () => 0 });
+    expect(call(xApis, 'getWindowInfo')).toMatchObject({
+      screenWidth: 375, screenHeight: 812, windowWidth: 375, windowHeight: 812,
+      windowTop: 0, windowBottom: 0, screenTop: 0, pixelRatio: 3, statusBarHeight: 44,
+      safeArea: { top: 44, left: 0, right: 375, bottom: 778, width: 375, height: 734 },
+      safeAreaInsets: { top: 44, left: 0, right: 0, bottom: 34 }
+    });
   });
 
   it('胶囊按钮位置按状态栏高度计算', () => {

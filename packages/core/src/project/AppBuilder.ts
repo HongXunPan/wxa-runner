@@ -195,12 +195,11 @@ export class AppBuilder {
     return { full: rewriteSafeAreaInsets(full), cut };
   }
 
+  /** 与开发者工具一致，项目里的 wxss 全部交给 wcsc：被 @import 的文件（如 uni-app 的 common/main.wxss）也要在列表里 */
   private async compileStyles(units: string[]) {
-    const { comm, pages } = await compileWxss({
-      cwd: this.project.root,
-      pageFiles: units.filter(id => this.project.exists(id + '.wxss')).map(id => `./${id}.wxss`),
-      commonFiles: this.project.exists('app.wxss') ? ['./app.wxss'] : []
-    });
+    const pageFiles = units.filter(id => this.project.exists(id + '.wxss')).map(id => `./${id}.wxss`);
+    const commonFiles = this.project.listFiles(['.wxss']).map(file => `./${file}`).filter(file => !pageFiles.includes(file));
+    const { comm, pages } = await compileWxss({ cwd: this.project.root, pageFiles, commonFiles });
     return {
       comm: rewriteSafeAreaInsets(comm),
       pages: Object.fromEntries(Object.entries(pages).map(([file, css]) => [file, rewriteSafeAreaInsets(css)]))

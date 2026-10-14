@@ -47,10 +47,23 @@ Component({
 });
 `;
 
+// uni-app 等框架的页面：用 Component 构造，状态不在 Page 实例上
+const VUE_PAGE_JS = `
+Component({
+  data: { tag: 'old', n: 0 },
+  methods: {
+    inc() { this.setData({ n: this.data.n + 1 }); }
+  }
+});
+`;
+
 function miniProgram() {
   return createProject({
     'project.config.json': { appid: 'wxtest0000000000', compileType: 'miniprogram' },
-    'app.json': { pages: ['pages/index/index', 'pages/detail/detail'], usingComponents: { badge: '/components/badge/badge' } },
+    'app.json': {
+      pages: ['pages/index/index', 'pages/detail/detail', 'pages/vue/vue'],
+      usingComponents: { badge: '/components/badge/badge' }
+    },
     'app.js': 'App({ globalData: { loads: 0 } });',
     'app.wxss': '',
     'pages/index/index.json': {},
@@ -61,6 +74,10 @@ function miniProgram() {
     'pages/detail/detail.js': "Page({ data: { tag: 'old' } });",
     'pages/detail/detail.wxml': '<view id="tag">{{tag}}</view>',
     'pages/detail/detail.wxss': '',
+    'pages/vue/vue.json': {},
+    'pages/vue/vue.js': VUE_PAGE_JS,
+    'pages/vue/vue.wxml': '<view id="tag">{{tag}}</view><view id="n">{{n}}</view><button id="inc" bindtap="inc">inc</button>',
+    'pages/vue/vue.wxss': '',
     'components/badge/badge.json': { component: true },
     'components/badge/badge.js': BADGE_JS,
     'components/badge/badge.wxml': '<view class="badge-n">n={{n}}</view><button class="badge-inc" bindtap="inc">inc</button>',
@@ -73,6 +90,7 @@ describe.skipIf(!ready)('热更新', () => {
   let browser: Browser;
   let page: Page;
   let projectPath = '';
+  let serverLogs: string[] = [];
 
   const edit = (file: string, update: (content: string) => string) => {
     const target = path.join(projectPath, file);
@@ -109,8 +127,9 @@ describe.skipIf(!ready)('热更新', () => {
       projectPath,
       port: 0,
       runtimeDir: RUNTIME_DIR,
-      logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
+      logger: { log: message => serverLogs.push(String(message)), warn: () => undefined, error: () => undefined }
     });
+    serverLogs = [];
     page = await browser.newPage();
     await page.goto(await server.start());
     await page.waitForFunction(() => window.__wxa_test_api__);
@@ -211,14 +230,58 @@ describe.skipIf(!ready)('热更新', () => {
     expect((await page.evaluate(() => window.__wxa_test_api__.currentPage()))!.path).toBe('pages/detail/detail');
   });
 
-  it('页面改用 Component 构造时无法热替换，退回整页刷新且新代码生效', async () => {
-    edit('pages/detail/detail.js', () => "Component({ data: { tag: 'component' } });");
+  it('构建工具重写了大量内容没变的文件时，只按内容真正变化的文件热更新', async () => {
+    const updated = hotUpdated();
+    // uni-app 的监听构建每次保存都会重写全部 js 和 wxss
+    for (const file of ['app.js', 'app.wxss', 'pages/detail/detail.js', 'components/badge/badge.js']) edit(file, content => content);
+    edit('pages/index/index.wxml', wxml => wxml.replace('<view id="loads">', '<view id="hot">新节点</view><view id="loads">'));
+    await updated;
 
+    await waitForText('#hot', '新节点');
+    expect(serverLogs.filter(line => line.includes('已更新'))).toEqual([expect.stringMatching(/^\[wxa-runner\] pages\/index\/index\.wxml 已更新/)]);
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('用 Component 构造的页面（如 uni-app）修改 JS 后重新挂载这一页：页面栈、globalData 保留，不整页刷新', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/vue/vue'));
+    await waitForPage('pages/vue/vue');
+    await tap('#inc');
+    await waitForText('#n', '1');
+
+    const updated = hotUpdated();
+    edit('pages/vue/vue.js', js => js.replace("tag: 'old'", "tag: 'new'"));
+    await updated;
+
+    // 页面自己的状态随重新挂载回到初始值，与 Vite 下修改 Vue 组件 <script> 的语义一致
+    await waitForText('#tag', 'new');
+    expect(await textOf('#n')).toBe('0');
+    expect((await page.evaluate(() => window.__wxa_test_api__.pageStack())).map(p => p.path)).toEqual(['pages/index/index', 'pages/vue/vue']);
+    await page.evaluate(() => window.__wxa_test_api__.navigateBack());
+    await waitForPage('pages/index/index');
+    expect(await textOf('#loads')).toBe('1');
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('修改组件 JS 后只重新挂载这个组件，所在页面的状态保留', async () => {
+    await tap('#add');
+    await tap('#add');
+    await waitForText('#count', '2');
+    await tap('#badge wx-button');
+    await waitForText('#badge wx-view', 'n=1');
+
+    const updated = hotUpdated();
+    edit('components/badge/badge.js', js => js.replace('this.data.n + 1', 'this.data.n + 10'));
+    await updated;
+
+    await waitForText('#badge wx-view', 'n=0');
+    await tap('#badge wx-button');
+    await waitForText('#badge wx-view', 'n=10');
+    expect(await textOf('#count')).toBe('2');
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('新代码执行出错、无法热更新时退回整页刷新', async () => {
+    edit('pages/detail/detail.js', () => "throw new Error('页面模块出错');");
     await page.waitForFunction(() => !(window as any).__hmrMarker, undefined, { timeout: 10000 });
-    await page.waitForFunction(() => window.__wxa_test_api__);
-    await page.evaluate(() => window.__wxa_test_api__.ready);
-    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail'));
-    await waitForPage('pages/detail/detail');
-    await waitForText('#tag', 'component');
   });
 });

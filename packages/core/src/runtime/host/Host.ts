@@ -158,6 +158,15 @@ export class Host implements HostApi {
     return this.stack.entries();
   }
 
+  /** 所有活着的页面：页面栈加上隐藏中的 tabBar 页面 */
+  livePages(): PageView[] {
+    return [...this.pages.values()];
+  }
+
+  serviceWindow(): Window | null {
+    return this.service?.win ?? null;
+  }
+
   onRoute(listener: (page: PageView, openType: OpenType) => void) {
     this.routeListeners.push(listener);
   }

@@ -4,7 +4,8 @@
  * 逻辑层（appservice）:
  *   1. 裁剪版 $gwx（wcc -xc），基础库用它了解组件的节点结构
  *   2. 每个 JS 文件单独一个 define("x.js", fn) 脚本（便于在 DevTools 里按原文件调试）
- *   3. bootstrap：注册 __wxAppCode__ 的 json/wxml，require("app.js")，再依次 require 组件和页面
+ *   3. bootstrap：注册 __wxAppCode__ 的 json/wxml（serviceTemplates，热更新时单独下发），
+ *      require("app.js")，再依次 require 组件和页面
  *
  * 渲染层（page-frame）:
  *   1. 完整版 $gwx（wcc -cc）
@@ -22,6 +23,8 @@ export interface BuildResult {
   wxConfig: Record<string, any>;
   /** 所有 JS 模块 id（如 "pages/index/index.js"），逻辑层按此顺序加载 define 脚本 */
   modules: string[];
+  /** 逻辑层的 $gwx 与 __wxAppCode__ json/wxml，不含 require */
+  serviceTemplates: string;
   serviceBootstrap: string;
   pageFrame: string;
   pages: string[];
@@ -129,6 +132,7 @@ export class AppBuilder {
       const workersDir = typeof app.workers === 'string' ? app.workers : app.workers?.path;
       const modules = this.project.listFiles(['.js'], workersDir ? [workersDir] : []);
 
+      const serviceTemplates = this.createServiceTemplates(app, units, unitJson, wxml.cut);
       const result: BuildResult = {
         version: ++this.version,
         wxConfig: createWxConfig({
@@ -139,7 +143,8 @@ export class AppBuilder {
           subPackages: this.project.subPackages(app)
         }),
         modules,
-        serviceBootstrap: this.createServiceBootstrap(app, units, unitJson, wxml.cut, modules),
+        serviceTemplates,
+        serviceBootstrap: this.createServiceBootstrap(serviceTemplates, units, modules),
         pageFrame: this.createPageFrame(app, units, unitJson, wxml.full, wxss),
         pages,
         components,
@@ -179,13 +184,7 @@ export class AppBuilder {
     });
   }
 
-  private createServiceBootstrap(
-    app: AppJson,
-    units: string[],
-    unitJson: Map<string, any>,
-    cutGwx: string,
-    modules: string[]
-  ): string {
+  private createServiceTemplates(app: AppJson, units: string[], unitJson: Map<string, any>, cutGwx: string): string {
     const lines: string[] = [cutGwx, `__wxAppCode__["app.json"] = ${toJs(app)};`];
 
     for (const id of units) {
@@ -194,6 +193,11 @@ export class AppBuilder {
         lines.push(`__wxAppCode__[${toJs(id + '.wxml')}] = $gwx(${toJs('./' + id + '.wxml')});`);
       }
     }
+    return lines.join('\n');
+  }
+
+  private createServiceBootstrap(serviceTemplates: string, units: string[], modules: string[]): string {
+    const lines: string[] = [serviceTemplates];
 
     if (modules.includes('app.js')) {
       lines.push(requireStatement('app.js', null));

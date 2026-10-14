@@ -7,9 +7,10 @@
  *   /__wxa__/appservice.html   逻辑层
  *   /__wxa__/webview/<page>.html  渲染层（路径与页面一致，wxml 里的相对资源路径因此能正确解析）
  *   /__wxa__/module/<file>.js  单个业务 JS 模块
+ *   /__wxa__/service-templates.js  逻辑层模板（热更新时重新下发）
  *   /__baselib__/*             官方基础库
  *   /__wxa__/proxy?url=        网络代理
- *   /__wxa__/ws                文件变化通知
+ *   /__wxa__/ws                文件变化通知：热更新（hot）或整页刷新（reload）
  *   其余路径                    小程序目录下的静态资源
  */
 
@@ -25,6 +26,7 @@ import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
 import { appserviceHtml, hostHtml, webviewHtml } from './html';
 import { handleProxy } from './proxy';
+import { planHotUpdate } from './hmr';
 import { bundleSetup, collectSetupEnv, findSetupFile } from './setup';
 
 export interface DevServerOptions {
@@ -184,13 +186,13 @@ export class DevServer {
       const launch = build.pages.includes(launchPath)
         ? { path: launchPath, query: Object.fromEntries(new URLSearchParams(String(req.query.query || ''))) }
         : { path: build.pages[0], query: {} };
-      res.type('html').send(appserviceHtml(build, launch));
+      res.type('html').send(appserviceHtml(build, launch, { hot: this.hotEnabled }));
     }));
 
     app.get(/^\/__wxa__\/webview\/(.+)\.html$/, this.withBuild((build, req, res, next) => {
       const pagePath = decodeURIComponent(req.params[0]);
       if (!build.pages.includes(pagePath)) return next();
-      res.type('html').send(webviewHtml(build, pagePath, Number(req.query.id)));
+      res.type('html').send(webviewHtml(build, pagePath, Number(req.query.id), { hot: this.hotEnabled }));
     }));
 
     app.get(/^\/__wxa__\/module\/(.+\.js)$/, this.withBuild((build, req, res) => {
@@ -204,6 +206,10 @@ export class DevServer {
 
     app.get('/__wxa__/service-bootstrap.js', this.withBuild((build, _req, res) => {
       res.type('js').send(build.serviceBootstrap);
+    }));
+
+    app.get('/__wxa__/service-templates.js', this.withBuild((build, _req, res) => {
+      res.type('js').send(build.serviceTemplates);
     }));
 
     app.get('/__wxa__/page-frame.js', this.withBuild((build, _req, res) => {
@@ -269,21 +275,35 @@ export class DevServer {
     return found;
   }
 
+  /** 只在监听文件变化时打开基础库的热更新开关，跑测试（watch: false）时运行环境与真机一致 */
+  private get hotEnabled(): boolean {
+    return this.options.watch !== false;
+  }
+
   private startWatching() {
     let changed = new Set<string>();
+    // 新增、删除文件会改变页面/模块列表，只能整页刷新
+    let structural = false;
+    // 上次编译失败时页面上显示着错误，修好后整页刷新才能清掉
+    let lastBuildFailed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const flush = async () => {
       const files = [...changed];
+      const reloadOnly = structural || lastBuildFailed;
       changed = new Set();
+      structural = false;
       this.builder.invalidate(files);
       const label = files.length > 3 ? `${files.slice(0, 3).join(', ')} 等 ${files.length} 个文件` : files.join(', ');
 
       try {
         const build = await this.builder.build();
-        this.logger.log(`[wxa-runner] ${label} 已更新，重新编译 ${build.durationMs}ms`);
-        this.broadcast({ type: 'reload' });
+        lastBuildFailed = false;
+        const plan = reloadOnly ? null : planHotUpdate(files, build);
+        this.logger.log(`[wxa-runner] ${label} 已更新，重新编译 ${build.durationMs}ms${plan ? '，热更新' : ''}`);
+        this.broadcast(plan ? { type: 'hot', version: build.version, ...plan } : { type: 'reload' });
       } catch (error) {
+        lastBuildFailed = true;
         const message = (error as Error).message;
         this.logger.error(`[wxa-runner] 编译失败：\n${message}`);
         this.broadcast({ type: 'error', message });
@@ -297,7 +317,8 @@ export class DevServer {
       ignoreInitial: true,
       ignored: /(^|[/\\])(node_modules|\.git)([/\\]|$)/
     });
-    this.watcher.on('all', (_event, file) => {
+    this.watcher.on('all', (event, file) => {
+      if (event !== 'change') structural = true;
       changed.add(path.relative(this.project.root, file).split(path.sep).join('/'));
       if (timer) clearTimeout(timer);
       timer = setTimeout(flush, WATCH_DEBOUNCE);

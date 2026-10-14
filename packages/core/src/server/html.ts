@@ -19,7 +19,21 @@ export function hostHtml(): string {
 </html>`;
 }
 
-export function appserviceHtml(build: BuildResult, launch: { path: string; query: Record<string, string> }): string {
+/**
+ * 打开基础库的热更新开关（runtime/host/hmr.ts 依赖它）：Page / Component / 模板注册时登记更新回调。
+ * 必须紧跟在基础库之后、业务代码注册之前执行；只在监听文件变化时打开
+ */
+function enableHotUpdate(hot: boolean): string {
+  return hot
+    ? `<script>if (typeof __virtualDOM__ !== 'undefined' && __virtualDOM__.enableUpdateWxAppCode) __virtualDOM__.enableUpdateWxAppCode();</script>\n`
+    : '';
+}
+
+export function appserviceHtml(
+  build: BuildResult,
+  launch: { path: string; query: Record<string, string> },
+  options: { hot: boolean }
+): string {
   const wxConfig = {
     ...build.wxConfig,
     appLaunchInfo: { scene: 1001, path: launch.path, query: launch.query }
@@ -37,7 +51,7 @@ export function appserviceHtml(build: BuildResult, launch: { path: string; query
 <script>var __wxConfig = ${toJs(wxConfig)};</script>
 <script src="/__wxa__/runtime/frame.js" data-kind="service"></script>
 <script src="/__baselib__/WAService.js"></script>
-<script>
+${enableHotUpdate(options.hot)}<script>
 if (typeof define !== 'function') {
   console.error('[wxa-runner] 基础库没有完成初始化（define 不存在），当前基础库版本可能不受支持');
 }
@@ -50,7 +64,7 @@ ${modules}
 </html>`;
 }
 
-export function webviewHtml(build: BuildResult, pagePath: string, webviewId: number): string {
+export function webviewHtml(build: BuildResult, pagePath: string, webviewId: number, options: { hot: boolean }): string {
   const pageConfig = build.wxConfig.page?.[pagePath + '.html'];
   const window = { ...build.wxConfig.global?.window, ...pageConfig?.window };
   const wxConfig = { ...build.wxConfig, window };
@@ -67,7 +81,7 @@ export function webviewHtml(build: BuildResult, pagePath: string, webviewId: num
 <script>var __wxConfig = ${toJs(wxConfig)};</script>
 <script src="/__wxa__/runtime/frame.js" data-kind="webview" data-webview-id="${id}"></script>
 <script src="/__baselib__/WAWebview.js"></script>
-<script src="/__wxa__/page-frame.js?v=${build.version}"></script>
+${enableHotUpdate(options.hot)}<script src="/__wxa__/page-frame.js?v=${build.version}"></script>
 ${window.disableScroll ? '<style>body{overflow-y:hidden}</style>' : ''}
 </head>
 <body>

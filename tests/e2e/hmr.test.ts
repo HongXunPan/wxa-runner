@@ -142,13 +142,14 @@ describe.skipIf(!ready)('热更新', () => {
   });
 
   it('开发者修改组件 WXML 后，组件内部状态保留', async () => {
-    await tap('.badge-inc');
-    await tap('.badge-inc');
-    await waitForText('.badge-n', 'n=2');
+    // 组件内的 class 会被基础库加上组件前缀，用组件节点的 id 定位
+    await tap('#badge wx-button');
+    await tap('#badge wx-button');
+    await waitForText('#badge wx-view', 'n=2');
 
     edit('components/badge/badge.wxml', wxml => wxml.replace('n={{n}}', '徽标 {{n}}'));
 
-    await waitForText('.badge-n', '徽标 2');
+    await waitForText('#badge wx-view', '徽标 2');
     expect(await hostReloaded()).toBe(false);
   });
 

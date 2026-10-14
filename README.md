@@ -113,7 +113,7 @@ wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会�
 | 网络 | request / downloadFile / uploadFile 经代理转发，connectSocket 直连 |
 | 存储 | Storage 按 appid 隔离存于 localStorage；FileSystemManager 基本操作 |
 | 启动前准备 | `wxa.setup.ts`：小程序启动前预置存储、覆盖原生 API，跳过登录等浏览器里走不通的环节 |
-| 开发体验 | 保存后自动编译并刷新、停留在当前页面；编译错误直接显示在页面上；`import` / `export` 自动转换为 CommonJS（带 source map） |
+| 开发体验 | 修改页面或组件的 WXML、页面 JS 后热更新，不刷新、不丢页面状态（见下文）；其他改动自动整页刷新并停留在当前页面；编译错误直接显示在页面上；`import` / `export` 自动转换为 CommonJS（带 source map） |
 | 测试 | `window.__wxa_test_api__`：等待页面、读取页面栈、mock 原生 API、读取 Storage、收集运行错误 |
 
 已在真实的 uni-app（Vue 3）编译产物上验证，例如 [unibest](https://github.com/feige996/unibest)。
@@ -155,6 +155,23 @@ export default defineSetup(({ env }) => ({
 - **类型提示**：不安装任何依赖也能运行；把 `@open-wxa/wxa-runner-core` 加为开发依赖后可获得完整的类型提示和补全
 - 存储必须在启动前写入：基础库会把读过的存储缓存在内存里，启动后再从外部改 localStorage，小程序读不到新值
 - `wx.request` 等网络 API 不能用 mock 覆盖，请求拦截将在后续版本提供
+
+## 热更新
+
+保存文件后不刷新整个模拟器，页面上已有的状态（`data`、页面栈、`globalData`）都保留：
+
+| 改动 | 效果 |
+| --- | --- |
+| 页面、组件自己的 `.wxml` | 新模板立即生效，用当前 `data` 重新渲染 |
+| 页面 `.js` | 方法换成新代码，下一次交互就执行新逻辑；已有 `data` 不变，新增的字段补上；`onLoad` 不会重跑；之后新打开的页面完全使用新代码 |
+| 其他（`app.js`、`.json`、`.wxss`、组件 `.js`、`utils` 等普通模块、被引用的模板和 wxs、新增或删除文件） | 整页刷新，停留在当前页面 |
+
+热更新完成后控制台会打印 `[wxa-runner] 热更新完成`；无法热更新时（如页面不是用 `Page()` 构造的）自动退回整页刷新。
+
+与 React Fast Refresh 一致，以下情况需要手动刷新才能看到新代码的效果：改了 `onLoad` 等只在打开页面时执行的生命周期；
+改了 `data` 的初始值（已有字段以当前状态为准）；更新前已经注册出去的回调（`setTimeout`、`wx.onXxx`）仍是旧函数。
+
+热更新依赖基础库为开发者工具准备的接口，只在监听文件变化时开启；`--no-watch`（如跑测试）时运行环境与真机一致。
 
 ## 在 Playwright 中使用
 
@@ -198,7 +215,7 @@ test.afterEach(async ({ page }) => {
 - 基础库最高支持 3.7.0。3.7.1 起基础库把业务代码放进原生创建的隔离上下文，尚未模拟
 - canvas、video、map 等原生组件，以及相机、蓝牙等设备能力尚未支持
 - 插件（`plugin://`）、分包异步化、Worker 尚未支持
-- 文件变化后整页刷新（保留当前页面路径和参数），不保留页面内的数据状态
+- 热更新只覆盖页面和组件的 WXML、页面 JS；其他改动整页刷新（保留当前页面路径和参数，不保留页面内的数据状态）
 
 ## 项目结构
 

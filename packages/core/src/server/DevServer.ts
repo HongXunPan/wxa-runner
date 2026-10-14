@@ -11,6 +11,7 @@
  *   /__baselib__/*             官方基础库
  *   /__wxa__/proxy?url=        网络代理
  *   /__wxa__/tmp               临时文件：POST ?type=png 保存，返回可直接访问的地址
+ *   /__wxa__/region/<kind>     地区选择器用的行政区划数据（districts / streets），取自本机开发者工具
  *   /__wxa__/ws                文件变化通知：热更新（hot）或整页刷新（reload）
  *   其余路径                    小程序目录下的静态资源
  */
@@ -22,7 +23,7 @@ import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
-import { resolveBaseLib, ResolvedBaseLib } from '@open-wxa/wxa-runner-extractor';
+import { findRegionDataFile, resolveBaseLib, ResolvedBaseLib } from '@open-wxa/wxa-runner-extractor';
 import { AppBuilder, BuildResult } from '../project/AppBuilder';
 import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
@@ -239,6 +240,16 @@ export class DevServer {
       this.tempFiles.set(name, Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
       res.json({ url: `${req.protocol}://${req.get('host')}/__wxa__/tmp/${name}` });
     });
+    app.get('/__wxa__/region/:kind', (req, res) => {
+      const kind = req.params.kind;
+      const file = kind === 'districts' || kind === 'streets' ? findRegionDataFile(kind) : null;
+      if (!file) {
+        res.status(404).end();
+        return;
+      }
+      res.type('text/plain; charset=utf-8').sendFile(file, { maxAge: '1d' });
+    });
+
     app.get('/__wxa__/tmp/:name', (req, res) => {
       const data = this.tempFiles.get(req.params.name);
       if (!data) {

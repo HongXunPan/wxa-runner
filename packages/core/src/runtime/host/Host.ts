@@ -9,6 +9,7 @@ import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '.
 import { ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis } from './api/network';
+import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
 import { createSystemApis } from './api/system';
@@ -358,6 +359,14 @@ export class Host implements HostApi {
     queueMicrotask(() => service.bridge.__dispatchOn(event, payload, webviewId));
   }
 
+  /** 派发给渲染层的原生事件（渲染层里 WeixinJSBridge.on 收到） */
+  emitToWebview(webviewId: number, event: string, data: unknown) {
+    this.pages.get(webviewId)?.dispatch((bridge, target) => {
+      const payload = cloneInto(target, data);
+      queueMicrotask(() => bridge.__dispatchOn(event, payload, webviewId));
+    });
+  }
+
   private webviewIdOf(win: Window): number {
     for (const page of this.pages.values()) {
       if (page.win === win) return page.id;
@@ -395,6 +404,11 @@ export class Host implements HostApi {
         routes: this.routes
       }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
+      ...createPickerApis({
+        showPicker: options => this.shell.showPicker(options),
+        emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data),
+        loadRegionData: fetchRegionData
+      }),
       ...createMiscApis(this.info.appid)
     });
   }

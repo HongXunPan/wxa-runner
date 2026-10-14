@@ -63,6 +63,11 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
   const pick = (index: number, text: string) =>
     column(index).locator('.wxa-picker-item', { hasText: new RegExp(`^${text}$`) }).click();
   const confirm = () => sheet().locator('.wxa-picker-confirm').click();
+  /** 点开页面上的 picker，等宿主的选择器弹出 */
+  const open = async (selector: string) => {
+    await frame.click(selector);
+    await sheet().waitFor();
+  };
 
   beforeAll(async () => {
     runner = await startRunner({
@@ -78,7 +83,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
 
   it('用户在选择器里选中第二项并确定，页面收到 change，选择器关闭', async () => {
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#fruit');
+    await open('#fruit');
     await expect(sheet().locator('.wxa-picker-title').textContent()).resolves.toBe('选水果');
     expect(await items(0)).toEqual(['苹果', '香蕉', '橙子']);
 
@@ -90,7 +95,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
 
   it('用户点取消，页面收到 cancel 而不是 change', async () => {
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#fruit');
+    await open('#fruit');
     await sheet().locator('.wxa-picker-cancel').click();
     await expectText(frame, '#fruit-result', 'cancel');
     expect(await sheet().count()).toBe(0);
@@ -98,7 +103,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
 
   it('日期选择器：用户切到 2 月后日期只剩 29 天，确定后页面收到 2024-02-29', async () => {
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#date');
+    await open('#date');
     expect((await items(0)).at(-1)).toBe('2025年');
     expect((await items(2)).length).toBe(31);
 
@@ -110,7 +115,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
 
   it('时间选择器：用户选 18 点，页面收到 18:30', async () => {
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#time');
+    await open('#time');
     await pick(0, '18');
     await confirm();
     await expectText(frame, '#time-result', '18:30');
@@ -118,7 +123,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
 
   it('多列选择器：用户切换第一列后页面改写第二列，选择器跟着更新', async () => {
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#food');
+    await open('#food');
     expect(await items(1)).toEqual(['苹果', '香蕉']);
 
     await pick(0, '蔬菜');
@@ -131,7 +136,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
   it('地区选择器：用户依次选择省、市、区，页面收到名称、编码和邮编', async ctx => {
     if (!hasRegionData) ctx.skip();
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#region');
+    await open('#region');
     await pick(0, '广东省');
     await pick(1, '广州市');
     await pick(2, '海珠区');
@@ -142,7 +147,7 @@ describe.skipIf(!e2eReady)('picker 选择器', () => {
   it('只选到城市的地区选择器只有省、市两列', async ctx => {
     if (!hasRegionData) ctx.skip();
     frame = await runner.open('/?path=pages/picker/picker');
-    await frame.click('#city');
+    await open('#city');
     await vi.waitFor(async () => expect(await sheet().locator('.wxa-picker-column').count()).toBe(2));
     await pick(0, '广东省');
     await pick(1, '深圳市');

@@ -39,6 +39,25 @@ export function findDevtoolsPackageDirs(): string[] {
   return candidates.filter(dir => fs.existsSync(path.join(dir, 'package.json')));
 }
 
+const REGION_DATA_FILES = {
+  districts: 'region_sub_strict_third',
+  streets: 'region_sub_strict'
+};
+
+export type RegionDataKind = keyof typeof REGION_DATA_FILES;
+
+/**
+ * 开发者工具自带的行政区划数据，picker 的地区选择器用它：districts 到区县三级，streets 到街道四级。
+ * 找不到时返回 null
+ */
+export function findRegionDataFile(kind: RegionDataKind): string | null {
+  for (const dir of findDevtoolsPackageDirs()) {
+    const file = path.join(dir, 'js/libs', REGION_DATA_FILES[kind]);
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
+
 /** 用户数据目录下所有的 WeappVendor 目录（每个登录过的账号一个） */
 export function findVendorDirs(): string[] {
   if (process.env.WXA_VENDOR_DIR) {

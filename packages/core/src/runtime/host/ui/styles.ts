@@ -2,6 +2,8 @@
 export const DEVICE_BEZEL = 13;
 export const STAGE_PADDING = 24;
 export const STAGE_GAP = 16;
+/** 选择器每一行的高度，一列显示 5 行，选中项在中间 */
+export const PICKER_ITEM_HEIGHT = 34;
 
 export const SHELL_CSS = `
 html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50% 0%, #f6f7f9 0%, #e6e9ee 100%); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
@@ -56,6 +58,18 @@ html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50
 .wxa-actionsheet-alert { padding: 16px; font-size: 13px; color: #888; text-align: center; background: #fff; }
 .wxa-actionsheet button { display: block; width: 100%; height: 56px; border: 0; border-top: 1px solid rgba(0,0,0,.06); background: #fff; font-size: 17px; cursor: pointer; }
 .wxa-actionsheet .wxa-actionsheet-cancel { margin-top: 8px; border-top: 0; }
+.wxa-picker { position: absolute; left: 0; right: 0; bottom: 0; padding-bottom: var(--wxa-safe-bottom, 0px); background: #fff; border-radius: 12px 12px 0 0; pointer-events: auto; user-select: none; }
+.wxa-picker-header { display: flex; align-items: center; height: 56px; padding: 0 8px; }
+.wxa-picker-header button { flex: none; border: 0; background: none; padding: 8px 12px; font-size: 17px; cursor: pointer; }
+.wxa-picker-cancel { color: rgba(0,0,0,.9); }
+.wxa-picker-confirm { color: #07c160; font-weight: 600; }
+.wxa-picker-title { flex: 1; overflow: hidden; font-size: 17px; font-weight: 600; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+.wxa-picker-body { position: relative; display: flex; height: ${PICKER_ITEM_HEIGHT * 5}px; margin: 0 16px 24px; }
+.wxa-picker-column { flex: 1; min-width: 0; overflow-y: auto; padding: ${PICKER_ITEM_HEIGHT * 2}px 0; box-sizing: border-box; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+.wxa-picker-column::-webkit-scrollbar { display: none; }
+.wxa-picker-item { height: ${PICKER_ITEM_HEIGHT}px; line-height: ${PICKER_ITEM_HEIGHT}px; padding: 0 4px; overflow: hidden; font-size: 17px; color: rgba(0,0,0,.4); text-align: center; white-space: nowrap; text-overflow: ellipsis; scroll-snap-align: center; cursor: pointer; }
+.wxa-picker-item.is-selected { color: rgba(0,0,0,.9); }
+.wxa-picker-indicator { position: absolute; left: 0; right: 0; top: ${PICKER_ITEM_HEIGHT * 2}px; height: ${PICKER_ITEM_HEIGHT}px; border-radius: 8px; background: rgba(0,0,0,.05); pointer-events: none; }
 .wxa-error { position: absolute; inset: 0; z-index: 20; overflow: auto; padding: 20px; background: #fff5f5; color: #c00; font: 12px/1.6 Menlo, monospace; white-space: pre-wrap; }
 .wxa-toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-radius: 999px; background: rgba(255,255,255,.7); box-shadow: 0 1px 2px rgba(15,23,42,.08); font-size: 12px; color: #555; }
 .wxa-toolbar button { border: 0; background: #111214; color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }

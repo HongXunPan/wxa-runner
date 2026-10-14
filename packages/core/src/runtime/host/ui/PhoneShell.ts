@@ -4,6 +4,8 @@
 
 import type { DeviceProfile } from '../../types';
 import { menuButtonRect, NAVIGATION_BAR_HEIGHT, TAB_BAR_HEIGHT } from '../api/system';
+import { element } from './dom';
+import { openPicker, PickerOptions, PickerSession } from './Picker';
 import { DEVICE_BEZEL, SHELL_CSS, STAGE_GAP, STAGE_PADDING } from './styles';
 
 export interface NavigationState {
@@ -384,6 +386,10 @@ export class PhoneShell {
     });
   }
 
+  showPicker(options: PickerOptions): PickerSession {
+    return openPicker(this.overlay, options);
+  }
+
   showError(message: string) {
     this.clearError();
     const el = element('div', 'wxa-error', message);
@@ -393,13 +399,6 @@ export class PhoneShell {
   clearError() {
     this.device.querySelector('.wxa-error')?.remove();
   }
-}
-
-function element(tag: string, className: string, text?: string): HTMLElement {
-  const el = document.createElement(tag);
-  el.className = className;
-  if (text !== undefined) el.textContent = text;
-  return el;
 }
 
 function maskElement(dim: boolean): HTMLElement {

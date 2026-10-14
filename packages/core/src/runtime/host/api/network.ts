@@ -165,9 +165,9 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
   };
 }
 
-async function proxyFetch(
+export async function proxyFetch(
   url: string,
-  init: { method: string; header?: Record<string, string>; body?: unknown; signal: AbortSignal }
+  init: { method: string; header?: Record<string, string>; body?: unknown; signal?: AbortSignal }
 ): Promise<ProxyResponse> {
   if (!/^https?:\/\//i.test(url)) throw new Error(`invalid url "${url}"`);
 

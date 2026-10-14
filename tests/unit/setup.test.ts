@@ -117,15 +117,15 @@ describe('setup 的写法', () => {
 
   it('run 在声明式配置之后执行，异步完成后 setup 才算结束', async () => {
     const { target, invoke, readStorage } = createTarget();
-    await applySetup({
+    await applySetup(defineSetup({
       storage: { token: 'from-config' },
       mock: { login: { code: 'from-config' } },
       async run(wxa) {
         await new Promise(resolve => setTimeout(resolve, 10));
         wxa.storage.set('token', `${wxa.storage.get('token')}+run`);
-        wxa.mock('login', { code: wxa.env.WXA_CODE });
+        wxa.mock('login', { code: wxa.env.WXA_CODE! });
       }
-    }, target, { WXA_CODE: 'from-run' });
+    }), target, { WXA_CODE: 'from-run' });
 
     expect(readStorage('token')).toBe('from-config+run');
     expect(invoke('login')).toMatchObject({ code: 'from-run' });
@@ -145,13 +145,13 @@ describe('setup 的写法', () => {
 describe('setup 执行摘要', () => {
   it('列出预置的存储 key 和覆盖的 API，包括 run 里做的', async () => {
     const { target } = createTarget();
-    const summary = await applySetup({
+    const summary = await applySetup(defineSetup({
       storage: { token: 'x', userInfo: {} },
       mock: { login: { code: 'c' } },
       run(wxa) {
         wxa.mock('getLocation', { latitude: 0, longitude: 0 });
       }
-    }, target, {});
+    }), target, {});
 
     const text = formatSetupSummary(summary);
     expect(text).toMatch(/storage\s+token, userInfo/);

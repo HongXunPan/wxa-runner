@@ -11,12 +11,20 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
+    "./setup": {
+      "types": "./dist/setup.d.ts",
+      "import": "./dist/setup.mjs",
+      "require": "./dist/setup.js"
+    },
     "./test-api": {
       "types": "./dist/test-api.d.ts"
     }
   },
   "typesVersions": {
     "*": {
+      "setup": [
+        "./dist/setup.d.ts"
+      ],
       "test-api": [
         "./dist/test-api.d.ts"
       ]

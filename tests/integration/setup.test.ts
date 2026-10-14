@@ -74,7 +74,7 @@ describe.skipIf(!ready)('开发服务器加载 setup', () => {
     expect(code).toContain('dev_code');
     expect(code).toContain('nickName');
     // TS 已编译、运行时自带的 defineSetup 已内联，浏览器里不需要再解析任何包
-    expect(code).not.toContain('@open-wxa/wxa-runner-core');
+    expect(code).not.toMatch(/^\s*import\s/m);
     expect(code).not.toMatch(/: string/);
   });
 

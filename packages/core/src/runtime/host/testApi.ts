@@ -3,6 +3,7 @@
  */
 
 import type { ApiHandler, ApiResult } from './api/registry';
+import { decodeStorageValue } from './api/storage';
 import type { FrameError, Host } from './Host';
 
 export interface PageSnapshot {
@@ -61,16 +62,7 @@ export function installTestApi(host: Host, ready: Promise<void>): WxaTestApi {
     switchTab: url => host.enqueueRoute(() => host.switchTab(url)),
     getStorage(key) {
       const item = host.storage.get('s0', key);
-      if (!item) return undefined;
-      // 基础库存储的是序列化后的字符串，按 dataType 还原
-      if (typeof item.data === 'string' && item.dataType && item.dataType !== 'String') {
-        try {
-          return JSON.parse(item.data);
-        } catch {
-          return item.data;
-        }
-      }
-      return item.data;
+      return item ? decodeStorageValue(item) : undefined;
     },
     clearStorage: () => host.storage.clear('s0'),
     errors: () => [...host.errors]

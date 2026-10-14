@@ -15,3 +15,4 @@ export type { AppInfo, DeviceProfile } from './runtime/types';
 export type { ApiContext, ApiHandler, ApiResult } from './runtime/host/api/registry';
 export type { FrameError } from './runtime/host/Host';
 export type { PageSnapshot, WxaTestApi } from './runtime/host/testApi';
+export type { MockConfig, MockValue, SetupApi, SetupConfig, SetupContext, SetupDefinition } from './setup';

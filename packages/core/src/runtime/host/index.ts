@@ -4,6 +4,7 @@
 
 import type { AppInfo } from '../types';
 import { Host, LaunchTarget } from './Host';
+import { applySetup, formatSetupSummary } from './setup';
 import { installTestApi } from './testApi';
 import { PhoneShell } from './ui/PhoneShell';
 
@@ -27,8 +28,28 @@ async function main() {
   });
   installTestApi(host, ready);
 
+  if (info.setup && !(await runSetup(host, info.setup))) return;
   await host.start(launchTarget(info));
   markReady();
+}
+
+/**
+ * 在逻辑层创建前执行 setup；失败时显示错误并返回 false——带着一半的预置状态启动，
+ * 小程序的表现会让人误以为是业务代码的问题
+ */
+async function runSetup(host: Host, setup: NonNullable<AppInfo['setup']>): Promise<boolean> {
+  try {
+    if (setup.error) throw new Error(setup.error);
+    // 地址是变量：esbuild 不会尝试在打包时解析它
+    const url = '/__wxa__/setup.js';
+    const module = await import(url);
+    console.info(formatSetupSummary(await applySetup(module.default, host, setup.env)));
+    return true;
+  } catch (error) {
+    console.error('[wxa-runner] setup 执行失败', error);
+    host.shell.showError(`setup 执行失败\n\n${(error as Error).message}`);
+    return false;
+  }
 }
 
 /** ?path=pages/detail/detail&id=1 可以直接打开指定页面 */

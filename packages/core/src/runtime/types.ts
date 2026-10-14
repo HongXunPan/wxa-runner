@@ -48,4 +48,6 @@ export interface AppInfo {
   pages: string[];
   device: DeviceProfile;
   buildError?: string;
+  /** 配置了 setup 文件时存在；error 是 setup 的编译错误 */
+  setup?: { env: Record<string, string>; error?: string };
 }

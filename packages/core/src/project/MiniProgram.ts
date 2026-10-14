@@ -29,7 +29,8 @@ export interface UnitJson {
 }
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode']);
-const PROJECT_FILES = new Set(['project.config.json', 'project.private.config.json', 'sitemap.json', 'app.json']);
+// wxa.setup.js 是 wxa-runner 的启动前脚本，不属于小程序
+const PROJECT_FILES = new Set(['project.config.json', 'project.private.config.json', 'sitemap.json', 'app.json', 'wxa.setup.js']);
 
 export class MiniProgram {
   /** 小程序代码根目录（已考虑 project.config.json 的 miniprogramRoot） */

@@ -2,7 +2,8 @@
  * 开发服务器
  *
  *   /                          宿主页面
- *   /__wxa__/app-info.json     构建信息（__wxConfig、页面列表、设备参数）
+ *   /__wxa__/app-info.json     构建信息（__wxConfig、页面列表、设备参数、setup）
+ *   /__wxa__/setup.js          编译后的 setup 文件
  *   /__wxa__/appservice.html   逻辑层
  *   /__wxa__/webview/<page>.html  渲染层（路径与页面一致，wxml 里的相对资源路径因此能正确解析）
  *   /__wxa__/module/<file>.js  单个业务 JS 模块
@@ -24,6 +25,7 @@ import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
 import { appserviceHtml, hostHtml, webviewHtml } from './html';
 import { handleProxy } from './proxy';
+import { bundleSetup, collectSetupEnv, findSetupFile } from './setup';
 
 export interface DevServerOptions {
   projectPath: string;
@@ -35,6 +37,11 @@ export interface DevServerOptions {
   baseLibCacheDir?: string;
   watch?: boolean;
   device?: Partial<DeviceProfile>;
+  /**
+   * 小程序启动前执行的 setup 文件；默认使用项目目录下的 wxa.setup.ts / .js / .mjs，传 false 不使用
+   * 环境变量在构造时读取，只暴露 WXA_ 前缀的变量
+   */
+  setup?: string | false;
   /** 浏览器端运行时（host.js / frame.js）所在目录，默认取构建产物 */
   runtimeDir?: string;
   logger?: Pick<Console, 'log' | 'warn' | 'error'>;
@@ -57,6 +64,9 @@ export class DevServer {
   readonly project: MiniProgram;
   readonly builder: AppBuilder;
   readonly baseLib: ResolvedBaseLib;
+  /** 生效的 setup 文件绝对路径，没有时为 null */
+  readonly setupFile: string | null;
+  private readonly setupEnv: Record<string, string>;
   private readonly device: DeviceProfile;
   private readonly logger: Pick<Console, 'log' | 'warn' | 'error'>;
   private readonly app: Express;
@@ -74,6 +84,8 @@ export class DevServer {
     }
     this.device = { ...DEFAULT_DEVICE, ...options.device };
     this.builder = new AppBuilder(this.project);
+    this.setupFile = resolveSetupFile(options.setup, this.project.projectPath);
+    this.setupEnv = collectSetupEnv(process.env);
     this.app = this.createApp();
   }
 
@@ -147,9 +159,23 @@ export class DevServer {
       try {
         const build = await this.builder.build();
         const info: AppInfo = { ...base, version: build.version, wxConfig: build.wxConfig, pages: build.pages };
+        if (this.setupFile) info.setup = await this.setupInfo(this.setupFile);
         res.json(info);
       } catch (error) {
         res.json({ ...base, version: 0, wxConfig: {}, pages: [], buildError: (error as Error).message });
+      }
+    });
+
+    app.get('/__wxa__/setup.js', async (_req, res) => {
+      noStore(res);
+      if (!this.setupFile) {
+        res.status(404).type('text').send('没有 setup 文件');
+        return;
+      }
+      try {
+        res.type('js').send(await bundleSetup(this.setupFile));
+      } catch (error) {
+        res.status(500).type('text').send((error as Error).message);
       }
     });
 
@@ -198,6 +224,16 @@ export class DevServer {
     });
 
     return app;
+  }
+
+  /** 先编译一遍 setup：编译错误随 app-info 交给宿主显示，而不是让浏览器 import 失败 */
+  private async setupInfo(file: string): Promise<NonNullable<AppInfo['setup']>> {
+    try {
+      await bundleSetup(file);
+      return { env: this.setupEnv };
+    } catch (error) {
+      return { env: this.setupEnv, error: (error as Error).message };
+    }
   }
 
   /** 需要构建结果的路由；构建失败时返回错误文本 */
@@ -254,7 +290,10 @@ export class DevServer {
       }
     };
 
-    this.watcher = chokidar.watch(this.project.root, {
+    // 项目目录下的 setup 文件不一定在小程序根目录（miniprogramRoot）里
+    const watched = [this.project.root];
+    if (this.setupFile && path.relative(this.project.root, this.setupFile).startsWith('..')) watched.push(this.setupFile);
+    this.watcher = chokidar.watch(watched, {
       ignoreInitial: true,
       ignored: /(^|[/\\])(node_modules|\.git)([/\\]|$)/
     });
@@ -271,4 +310,12 @@ export class DevServer {
       if (client.readyState === WebSocket.OPEN) client.send(data);
     });
   }
+}
+
+function resolveSetupFile(option: string | false | undefined, projectPath: string): string | null {
+  if (option === false) return null;
+  if (!option) return findSetupFile(projectPath);
+  const file = path.resolve(option);
+  if (!fs.existsSync(file)) throw new Error(`找不到 setup 文件：${file}`);
+  return file;
 }

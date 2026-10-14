@@ -65,6 +65,65 @@ export class MiniProgramStorage {
   }
 }
 
+export interface StoredValue {
+  data: string;
+  dataType: string;
+}
+
+/**
+ * 按基础库 anyTypeToString 的规则序列化：宿主直接写入的值，wx.getStorageSync 读回来与原值一致
+ *
+ * @throws 值的类型无法存储（函数、Map 等）时
+ */
+export function encodeStorageValue(value: unknown): StoredValue {
+  const dataType = typeOf(value);
+  switch (dataType) {
+    case 'Array':
+    case 'Object':
+      return { data: JSON.stringify(value), dataType };
+    case 'String':
+    case 'Number':
+    case 'Boolean':
+      return { data: String(value), dataType };
+    case 'Date':
+      return { data: String((value as Date).getTime()), dataType };
+    case 'Undefined':
+    case 'Null':
+      return { data: dataType.toLowerCase(), dataType };
+    default:
+      throw new Error(`不支持存储 ${dataType} 类型的值`);
+  }
+}
+
+/** encodeStorageValue 的逆过程，与基础库 stringToAnyType 一致；没有 dataType 时原样返回 */
+export function decodeStorageValue(item: { data: unknown; dataType?: string }): unknown {
+  const { data, dataType } = item;
+  if (typeof data !== 'string' || !dataType) return data;
+  switch (dataType) {
+    case 'String':
+      return data;
+    case 'Array':
+    case 'Object':
+      return JSON.parse(data);
+    case 'Number':
+      return parseFloat(data);
+    case 'Boolean':
+      return data === 'true';
+    case 'Date':
+      return new Date(parseInt(data, 10));
+    case 'Undefined':
+      return undefined;
+    case 'Null':
+      return null;
+    default:
+      return '';
+  }
+}
+
+function typeOf(value: unknown): string {
+  return Object.prototype.toString.call(value).slice(8, -1);
+}
+
 export function createStorageApis(storage: MiniProgramStorage): Record<string, ApiHandler> {
   const ns = (args: any) => `s${args.storageId || 0}`;
 

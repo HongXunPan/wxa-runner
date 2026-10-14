@@ -92,6 +92,8 @@ wxa-runner dev <project-path>
   -p, --port <port>         端口号（默认 3000）
   --host <host>             监听地址（默认 localhost）
   -b, --baselib <version>   基础库版本
+  --setup <file>            启动前执行的 setup 文件（默认使用项目目录下的 wxa.setup.ts / .js / .mjs）
+  --no-setup                不执行 setup 文件
   --no-watch                不监听文件变化
   -o, --open                启动后打开浏览器
 
@@ -110,10 +112,49 @@ wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会�
 | 界面 | 导航栏（标题、颜色、返回、自定义导航栏）、tabBar、toast / loading / modal / actionSheet |
 | 网络 | request / downloadFile / uploadFile 经代理转发，connectSocket 直连 |
 | 存储 | Storage 按 appid 隔离存于 localStorage；FileSystemManager 基本操作 |
+| 启动前准备 | `wxa.setup.ts`：小程序启动前预置存储、覆盖原生 API，跳过登录等浏览器里走不通的环节 |
 | 开发体验 | 保存后自动编译并刷新、停留在当前页面；编译错误直接显示在页面上；`import` / `export` 自动转换为 CommonJS（带 source map） |
 | 测试 | `window.__wxa_test_api__`：等待页面、读取页面栈、mock 原生 API、读取 Storage、收集运行错误 |
 
 已在真实的 uni-app（Vue 3）编译产物上验证，例如 [unibest](https://github.com/feige996/unibest)。
+
+## 启动前准备（setup）
+
+浏览器里拿不到真实的 `wx.login` code、用户信息、定位等。在项目目录（`project.config.json` 所在目录）
+放一个 `wxa.setup.ts`，它会在 `App.onLaunch` 之前执行，让小程序直接进入「已登录」之类的状态：
+
+```ts
+// wxa.setup.ts
+import { defineSetup } from '@open-wxa/wxa-runner-core/setup';
+
+export default defineSetup(({ env }) => ({
+  // 预置存储：值保持原类型，wx.getStorageSync 读到的就是这些值
+  storage: {
+    token: env.WXA_TOKEN,
+    userInfo: { id: 1, nickName: '测试用户' }
+  },
+  // 覆盖原生 API：对象作为返回结果；函数按调用参数返回，抛错即调用失败
+  mock: {
+    login: { code: 'dev_code' },
+    getLocation: { latitude: 31.23, longitude: 121.47 }
+  },
+  // 声明式配置之后执行，适合异步、动态的逻辑
+  async run(wxa) {
+    const res = await wxa.fetch('https://test-api.example.com/dev/token');  // 经代理，无跨域限制
+    wxa.storage.set('token', (await res.json()).token);
+  }
+}));
+```
+
+- **按场景选用**：启动时只检查本地 token 的项目，用 `storage` 预置 token 即可；每次启动都调 `wx.login` 的项目，
+  再用 `mock.login` 返回测试后端认可的 code
+- **环境变量**：只有 `WXA_` 开头的变量会传给 setup（它在浏览器里执行），如 `WXA_TOKEN=xxx wxa-runner dev .`；
+  密钥不要直接写在 setup 文件里
+- **执行时机**：每次打开、刷新页面都会重新执行，顺序固定为 storage → mock → run；修改 setup 文件后页面自动刷新
+- **反馈**：执行结果打印在浏览器控制台（`[wxa-runner] setup 已应用`）；配置写错或执行出错时，模拟器显示错误且不启动小程序
+- **类型提示**：不安装任何依赖也能运行；把 `@open-wxa/wxa-runner-core` 加为开发依赖后可获得完整的类型提示和补全
+- 存储必须在启动前写入：基础库会把读过的存储缓存在内存里，启动后再从外部改 localStorage，小程序读不到新值
+- `wx.request` 等网络 API 不能用 mock 覆盖，请求拦截将在后续版本提供
 
 ## 在 Playwright 中使用
 

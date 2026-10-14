@@ -18,6 +18,8 @@ program
   .option('-p, --port <port>', '端口号', '3000')
   .option('--host <host>', '监听地址', 'localhost')
   .option('-b, --baselib <version>', '基础库版本（默认使用本机已安装的最新兼容版本）')
+  .option('--setup <file>', '小程序启动前执行的 setup 文件（默认使用项目目录下的 wxa.setup.ts / .js / .mjs）')
+  .option('--no-setup', '不执行 setup 文件')
   .option('--no-watch', '不监听文件变化')
   .option('-o, --open', '启动后打开浏览器')
   .action(async (projectPath, options) => {
@@ -29,6 +31,7 @@ program
         port: parseInt(options.port, 10),
         host: options.host,
         baseLibVersion: options.baselib,
+        setup: options.setup,
         watch: options.watch
       });
       const url = await server.start();
@@ -38,6 +41,7 @@ program
       console.log(`  地址      ${chalk.cyan(url)}`);
       console.log(`  项目      ${server.project.root}`);
       console.log(`  基础库    ${server.baseLib.version}`);
+      if (server.setupFile) console.log(`  setup     ${server.setupFile}`);
       console.log('');
 
       if (options.open) openBrowser(url);

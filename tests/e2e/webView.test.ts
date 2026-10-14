@@ -48,7 +48,7 @@ describe.skipIf(!e2eReady)('web-view', () => {
       'pages/web/web.json': {},
       'pages/web/web.wxml': WEB_WXML,
       'pages/web/web.js': WEB_JS,
-      'h5/hello.html': '<!doctype html><meta charset="utf-8"><h1 id="title">Hello H5</h1>',
+      'h5/hello.html': '<!doctype html><meta charset="utf-8"><h1 id="title">Hello H5</h1><a id="next" href="bye.html">下一页</a>',
       'h5/bye.html': '<!doctype html><meta charset="utf-8"><h1 id="title">Bye H5</h1>'
     });
     hello = runner.base + '/h5/hello.html';
@@ -73,6 +73,15 @@ describe.skipIf(!e2eReady)('web-view', () => {
     const frame = await runner.open(`${webPage(hello)}&next=${encodeURIComponent(bye)}`);
     await expectText(frame, '#loaded', bye);
     await expect(embedded().locator('#title').textContent()).resolves.toBe('Bye H5');
+  });
+
+  it('用户在网页里点链接跳转后，页面收到新网页的 load', async () => {
+    const frame = await runner.open(webPage(hello));
+    await expectText(frame, '#loaded', hello);
+
+    await embedded().locator('#next').click();
+    await expect(embedded().locator('#title').textContent()).resolves.toBe('Bye H5');
+    await expectText(frame, '#loaded', bye);
   });
 
   it('返回上一页后网页随页面一起关闭', async () => {

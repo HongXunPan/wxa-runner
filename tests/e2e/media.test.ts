@@ -15,11 +15,13 @@ const CANVAS_WXML = `
 <view id="legacy-pixel">{{legacyPixel}}</view>
 <image wx:if="{{exportedFile}}" src="{{exportedFile}}" bindload="onExportedLoad" binderror="onExportedError" style="width:120px;height:80px"></image>
 <view id="exported">{{exported}}</view>
+<image wx:if="{{legacyFile}}" src="{{legacyFile}}" bindload="onLegacyExportedLoad" style="width:100px;height:100px"></image>
+<view id="legacy-exported">{{legacyExported}}</view>
 `;
 
 const CANVAS_JS = `
 Page({
-  data: { drawn: '', legacyPixel: '', exportedFile: '', exported: '' },
+  data: { drawn: '', legacyPixel: '', exportedFile: '', exported: '', legacyFile: '', legacyExported: '' },
   onReady() {
     const ctx = wx.createCanvasContext('legacy', this);
     ctx.setFillStyle('#ff0000');
@@ -30,6 +32,11 @@ Page({
         canvasId: 'legacy', x: 50, y: 50, width: 1, height: 1,
         success: res => this.setData({ legacyPixel: Array.from(res.data).join(',') }),
         fail: err => this.setData({ legacyPixel: err.errMsg })
+      }, this);
+      wx.canvasToTempFilePath({
+        canvasId: 'legacy',
+        success: r => this.setData({ legacyFile: r.tempFilePath, legacyExported: r.tempFilePath ? '' : 'empty path' }),
+        fail: err => this.setData({ legacyExported: 'fail ' + err.errMsg })
       }, this);
     });
 
@@ -46,7 +53,8 @@ Page({
     });
   },
   onExportedLoad(e) { this.setData({ exported: 'loaded ' + e.detail.width + 'x' + e.detail.height }); },
-  onExportedError(e) { this.setData({ exported: 'error ' + e.detail.errMsg }); }
+  onExportedError(e) { this.setData({ exported: 'error ' + e.detail.errMsg }); },
+  onLegacyExportedLoad(e) { this.setData({ legacyExported: 'loaded ' + e.detail.width + 'x' + e.detail.height }); }
 });
 `;
 
@@ -102,9 +110,10 @@ describe.skipIf(!e2eReady)('画布与相机', () => {
     await expectText(frame, '#legacy-pixel', '255,0,0,255');
   });
 
-  it('canvasToTempFilePath 导出的图片可以直接作为 image 的 src 显示', async () => {
+  it('canvasToTempFilePath 导出的图片可以直接作为 image 的 src 显示，新旧两种画布都可以', async () => {
     const frame = await runner.open('/?path=pages/canvas/canvas');
     await expectText(frame, '#exported', /^loaded [1-9]\d*x[1-9]\d*$/);
+    await expectText(frame, '#legacy-exported', /^loaded [1-9]\d*x[1-9]\d*$/);
   });
 
   it('用户拍照后得到的照片可以直接作为 image 的 src 显示', async () => {

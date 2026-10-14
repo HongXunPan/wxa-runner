@@ -73,6 +73,11 @@ export interface MockResponse {
   header?: Record<string, string>;
   /** 字符串原样返回；其他值按 JSON 返回，小程序拿到的 res.data 是解析后的对象 */
   body?: unknown;
+  /**
+   * 模拟网络延迟（毫秒），默认 0。拦截的响应是瞬间返回的，比真机早到，
+   * 可能暴露业务代码里依赖网络耗时的时序问题（如登录回调里假设首页已创建）
+   */
+  delay?: number;
 }
 
 export type RouteHandler = MockResponse | ((request: MockRequest) => MockResponse | void | Promise<MockResponse | void>);

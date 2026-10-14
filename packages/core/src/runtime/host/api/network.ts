@@ -55,7 +55,7 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     const requestTaskId = startTask(args, async (signal, id) => {
       try {
         const method = (args.method || 'GET').toUpperCase();
-        const mocked = await options.routes?.respond({ url: args.url, method, header: args.header || {}, data: args.data });
+        const mocked = await options.routes?.respond({ url: args.url, method, header: args.header || {}, data: args.data }, signal);
         const res = mocked
           ? { statusCode: mocked.statusCode, header: mocked.header, cookies: [] as string[], text: async () => mocked.data }
           : await proxyFetch(args.url, { method, header: args.header, body: args.data, signal })

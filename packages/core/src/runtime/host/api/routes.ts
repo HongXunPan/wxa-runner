@@ -29,20 +29,29 @@ export class RequestRoutes {
       throw new Error(`拦截规则应写成 "[请求方法 ]地址"，如 "POST https://api.example.com/login"、"**/auth/login"`);
     }
     if (typeof handler !== 'function' && (handler === null || typeof handler !== 'object')) {
-      throw new Error('拦截规则的值需要是响应对象 { status?, header?, body? }，或按请求返回响应的函数');
+      throw new Error('拦截规则的值需要是响应对象 { status?, header?, body?, delay? }，或按请求返回响应的函数');
     }
+    if (typeof handler === 'object') checkDelay(handler.delay);
     const [method, url] = parts.length === 2 ? [parts[0].toUpperCase(), parts[1]] : [null, parts[0]];
     this.routes.unshift({ pattern, method, url: globToRegExp(url), handler });
   }
 
-  /** 找到匹配的规则时返回它的响应，否则返回 undefined */
-  async respond(request: MockRequest): Promise<{ statusCode: number; header: Record<string, string>; data: string } | undefined> {
+  /**
+   * 找到匹配的规则时返回它的响应，否则返回 undefined
+   * @throws 延迟期间 signal 被 abort 时，抛出 signal.reason
+   */
+  async respond(
+    request: MockRequest,
+    signal?: AbortSignal
+  ): Promise<{ statusCode: number; header: Record<string, string>; data: string } | undefined> {
     const url = request.url.replace(/[?#].*$/, '');
     const route = this.routes.find(r => (!r.method || r.method === request.method) && r.url.test(url));
     if (!route) return undefined;
 
     console.info(`[wxa-runner] 拦截请求 ${request.method} ${request.url}（${route.pattern}）`);
     const response: MockResponse = typeof route.handler === 'function' ? (await route.handler(request)) || {} : route.handler;
+    checkDelay(response.delay);
+    if (response.delay) await sleep(response.delay, signal);
     const { body } = response;
     const isText = typeof body === 'string' || body === undefined;
     return {
@@ -51,6 +60,23 @@ export class RequestRoutes {
       data: body === undefined ? '' : isText ? (body as string) : JSON.stringify(body)
     };
   }
+}
+
+function checkDelay(delay: unknown) {
+  if (delay !== undefined && !(typeof delay === 'number' && delay >= 0 && Number.isFinite(delay))) {
+    throw new Error(`delay 需要是不小于 0 的毫秒数，实际是 ${String(delay)}`);
+  }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    }, { once: true });
+  });
 }
 
 function globToRegExp(glob: string): RegExp {

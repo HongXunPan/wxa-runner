@@ -163,6 +163,7 @@ export default defineSetup(({ env }) => ({
 - **类型提示**：不安装任何依赖也能运行；把 `@open-wxa/wxa-runner-core` 加为开发依赖后可获得完整的类型提示和补全
 - 存储必须在启动前写入：基础库会把读过的存储缓存在内存里，启动后再从外部改 localStorage，小程序读不到新值
 - `wx.request` 不能用 mock 覆盖，请用 `network.routes`；命中的请求会在控制台打印 `[wxa-runner] 拦截请求`。
+  拦截的响应默认立即返回，比真机早到；业务代码在回调里假设「首页已经创建」之类时会出错，可以加 `delay`（毫秒）模拟网络耗时。
   `downloadFile`、`uploadFile`、`connectSocket` 暂不拦截
 
 ## 热更新

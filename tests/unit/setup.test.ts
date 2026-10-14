@@ -1,11 +1,13 @@
 /**
- * 启动前环境准备（setup）：预置存储、覆盖原生 API、run 兜底
+ * 启动前环境准备（setup）：预置存储、覆盖原生 API、拦截请求、run 兜底
  *
- * 断言都落在小程序可观测的结果上：基础库经 invoke 读到的存储、原生 API 的返回值。
+ * 断言都落在小程序可观测的结果上：基础库经 invoke 读到的存储、原生 API 的返回值、请求任务推送的结果。
  */
 
 import { describe, expect, it } from 'vitest';
+import { createNetworkApis } from '../../packages/core/src/runtime/host/api/network';
 import { ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
+import { RequestRoutes } from '../../packages/core/src/runtime/host/api/routes';
 import {
   createStorageApis,
   decodeStorageValue,
@@ -30,15 +32,28 @@ function memoryStore(): KeyValueStore {
 
 function createTarget() {
   const storage = new MiniProgramStorage(memoryStore(), 'wxtest');
+  const routes = new RequestRoutes();
   const api = new ApiRegistry();
+  const events: Array<{ event: string; data: any }> = [];
   api.register(createStorageApis(storage));
+  api.register(createNetworkApis({ emit: (event, data) => events.push({ event, data }), defaultTimeout: () => 1000, routes }));
   const invoke = (name: string, args: object = {}) => api.invoke(name, args, { api: name, from: 'service', webviewId: 1 });
+  /** 小程序里 wx.request 最终拿到的结果：基础库按任务 id 收集 success / fail 事件 */
+  const request = async (args: { url: string; method?: string; data?: unknown; header?: Record<string, string> }) => {
+    const { requestTaskId } = invoke('createRequestTask', args) as any;
+    for (let i = 0; i < 200; i++) {
+      const done = events.find(e => e.data.requestTaskId === requestTaskId && ['success', 'fail'].includes(e.data.state));
+      if (done) return done.data;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    throw new Error('请求没有结束');
+  };
   /** 小程序里 wx.getStorageSync(key) 拿到的值：基础库按 dataType 还原 invoke 结果 */
   const readStorage = (key: string) => {
     const result = invoke('getStorageSync', { key }) as any;
     return result.errMsg.endsWith(':ok') ? decodeStorageValue(result) : undefined;
   };
-  return { target: { storage, api }, invoke, readStorage };
+  return { target: { storage, api, routes }, invoke, readStorage, request };
 }
 
 describe('setup 预置存储', () => {
@@ -108,6 +123,72 @@ describe('setup 覆盖原生 API', () => {
   });
 });
 
+describe('setup 拦截请求', () => {
+  const LOGIN = 'https://api.example.com/api/seed/fmmatch/auth/login';
+
+  it('小程序请求被拦截的接口时，拿到 setup 给定的响应', async () => {
+    const { target, request } = createTarget();
+    await applySetup({
+      network: { routes: { 'POST **/auth/login': { body: { code: 200, data: { token: 't-1' } } } } }
+    }, target, {});
+
+    const res = await request({ url: LOGIN + '?from=launch', method: 'POST', data: '{"code":"x"}' });
+    expect(res.state).toBe('success');
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.data)).toEqual({ code: 200, data: { token: 't-1' } });
+  });
+
+  it('函数形式的拦截按请求内容返回响应，可以指定状态码', async () => {
+    const { target, request } = createTarget();
+    await applySetup({
+      network: {
+        routes: {
+          '**/auth/login': req => ({ status: 201, body: { method: req.method, sent: JSON.parse(String(req.data)) } })
+        }
+      }
+    }, target, {});
+
+    const res = await request({ url: LOGIN, method: 'POST', data: '{"code":"abc"}' });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.data)).toEqual({ method: 'POST', sent: { code: 'abc' } });
+  });
+
+  it('请求方法或地址对不上的请求不被拦截，照常发往网络', async () => {
+    const { target, request } = createTarget();
+    await applySetup({ network: { routes: { 'POST **/auth/login': { body: {} } } } }, target, {});
+
+    // 单元测试里没有开发服务器，真正发出的请求会失败
+    expect((await request({ url: LOGIN, method: 'GET' })).state).toBe('fail');
+    expect((await request({ url: 'https://api.example.com/auth/login/extra', method: 'POST' })).state).toBe('fail');
+  });
+
+  it('* 只匹配一段路径，** 匹配任意层级', async () => {
+    const { target, request } = createTarget();
+    await applySetup({ network: { routes: { 'https://api.example.com/*/user': { body: 'one' } } } }, target, {});
+
+    expect((await request({ url: 'https://api.example.com/v1/user' })).data).toBe('one');
+    expect((await request({ url: 'https://api.example.com/v1/v2/user' })).state).toBe('fail');
+  });
+
+  it('run 里也能添加拦截', async () => {
+    const { target, request } = createTarget();
+    await applySetup(defineSetup({
+      run(wxa) {
+        wxa.route('GET https://api.example.com/me', { body: { name: wxa.env.WXA_NAME } });
+      }
+    }), target, { WXA_NAME: 'dev' });
+
+    expect(JSON.parse((await request({ url: 'https://api.example.com/me' })).data)).toEqual({ name: 'dev' });
+  });
+
+  it('拦截规则写错时报错并指出是哪一条', async () => {
+    const { target } = createTarget();
+    await expect(applySetup({ network: { routes: { 'FETCH https://a.com/x': { body: {} } } } } as any, target, {}))
+      .rejects.toThrow(/network\.routes\["FETCH https:\/\/a\.com\/x"\]/);
+    await expect(applySetup({ network: { rotes: {} } } as any, target, {})).rejects.toThrow(/rotes.*routes/);
+  });
+});
+
 describe('setup 的写法', () => {
   it('函数形式的 setup 能拿到环境变量', async () => {
     const { target, readStorage } = createTarget();
@@ -133,7 +214,7 @@ describe('setup 的写法', () => {
 
   it('写错的配置项直接报错，并列出可用的配置项', async () => {
     const { target } = createTarget();
-    await expect(applySetup({ storge: { token: 'x' } } as any, target, {})).rejects.toThrow(/storge.*storage, mock, run/);
+    await expect(applySetup({ storge: { token: 'x' } } as any, target, {})).rejects.toThrow(/storge.*storage, mock, network, run/);
   });
 
   it('setup 默认导出不是对象或函数时报错', async () => {
@@ -148,6 +229,7 @@ describe('setup 执行摘要', () => {
     const summary = await applySetup(defineSetup({
       storage: { token: 'x', userInfo: {} },
       mock: { login: { code: 'c' } },
+      network: { routes: { 'POST **/auth/login': { body: {} } } },
       run(wxa) {
         wxa.mock('getLocation', { latitude: 0, longitude: 0 });
       }
@@ -156,5 +238,6 @@ describe('setup 执行摘要', () => {
     const text = formatSetupSummary(summary);
     expect(text).toMatch(/storage\s+token, userInfo/);
     expect(text).toMatch(/mock\s+login, getLocation/);
+    expect(text).toMatch(/network\s+POST \*\*\/auth\/login/);
   });
 });

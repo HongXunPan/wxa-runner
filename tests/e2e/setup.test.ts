@@ -37,7 +37,36 @@ Page({
 });
 `;
 
-function miniProgram(setup: string) {
+// 每次启动都静默登录：wx.login 拿 code，POST 给后端换 token
+const LOGIN_APP_JS = `
+App({
+  globalData: {},
+  onLaunch() {
+    wx.login({
+      success: ({ code }) => wx.request({
+        url: 'https://api.example.com/api/auth/login',
+        method: 'POST',
+        data: { code },
+        success: res => { this.globalData.token = res.data.code === 200 ? res.data.data.token : '登录失败'; }
+      })
+    });
+  }
+});
+`;
+
+const LOGIN_PAGE_JS = `
+Page({
+  data: { token: '' },
+  onLoad() {
+    const timer = setInterval(() => {
+      const { token } = getApp().globalData;
+      if (token) { clearInterval(timer); this.setData({ token }); }
+    }, 50);
+  }
+});
+`;
+
+function miniProgram(setup: string, overrides: Record<string, string> = {}) {
   return createProject({
     'project.config.json': { appid: 'wxtest0000000000', compileType: 'miniprogram' },
     'app.json': { pages: ['pages/index/index'] },
@@ -47,7 +76,8 @@ function miniProgram(setup: string) {
     'pages/index/index.js': PAGE_JS,
     'pages/index/index.wxml': '<view id="token">{{token}}</view><view id="nick">{{nickName}}</view><view id="code">{{code}}</view>',
     'pages/index/index.wxss': '',
-    'wxa.setup.js': setup
+    'wxa.setup.js': setup,
+    ...overrides
   });
 }
 
@@ -56,9 +86,9 @@ describe.skipIf(!ready)('setup 跳过登录', () => {
   let browser: Browser;
   let page: Page;
 
-  const open = async (setup: string) => {
+  const open = async (setup: string, overrides?: Record<string, string>) => {
     server = new DevServer({
-      projectPath: miniProgram(setup),
+      projectPath: miniProgram(setup, overrides),
       port: 0,
       watch: false,
       runtimeDir: RUNTIME_DIR,
@@ -107,6 +137,23 @@ describe.skipIf(!ready)('setup 跳过登录', () => {
     expect(await frame.textContent('#nick')).toBe('测试用户');
     await frame.waitForFunction(() => document.querySelector('#code')?.textContent === 'dev_code');
     expect(await page.evaluate(() => window.__wxa_test_api__.getStorage('userInfo'))).toEqual({ nickName: '测试用户' });
+  });
+
+  it('开发者拦截登录接口后，每次启动都静默登录的小程序直接拿到 token', async () => {
+    await open(`
+      export default {
+        network: {
+          routes: {
+            'POST **/api/auth/login': { body: { code: 200, msg: null, data: { loginType: '1', token: 'mocked-token' } } }
+          }
+        }
+      };
+    `, { 'app.js': LOGIN_APP_JS, 'pages/index/index.js': LOGIN_PAGE_JS });
+    await page.evaluate(() => window.__wxa_test_api__.ready);
+
+    const { frameName } = (await page.evaluate(() => window.__wxa_test_api__.currentPage()))!;
+    const frame = page.frame({ name: frameName })!;
+    await frame.waitForFunction(() => document.querySelector('#token')?.textContent === 'mocked-token');
   });
 
   it('setup 执行出错时，开发者在模拟器里看到错误，小程序不带着半成品状态启动', async () => {

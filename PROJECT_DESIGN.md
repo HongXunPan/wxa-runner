@@ -109,8 +109,8 @@ wxa-runner/
 │   │               ├── PageStack.ts   # 页面栈（纯逻辑）
 │   │               ├── PageView.ts    # 单个渲染层 iframe
 │   │               ├── testApi.ts     # window.__wxa_test_api__
-│   │               ├── api/           # 原生 API：storage / system / network / ui / misc + 注册表
-│   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet
+│   │               ├── api/           # 原生 API：storage / system / network / ui / picker / webView / misc + 注册表
+│   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器
 │   │
 │   └── cli/bin/wxa-runner.js          # @open-wxa/wxa-runner-cli
 │
@@ -122,7 +122,7 @@ wxa-runner/
 └── tests/
     ├── unit/                          # 解包、编译、项目解析、构建、运行时纯逻辑、原生 API
     ├── integration/                   # DevServer 路由、网络代理
-    └── e2e/                           # 真实浏览器运行 showcase
+    └── e2e/                           # 真实浏览器运行 showcase 和临时小程序（原生组件等）
 ```
 
 > 与最初方案的差异：没有单独的 `wxa-runner-playwright` 包（Phase 3）；`vendor/` 目录不再存在，
@@ -249,6 +249,9 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
    和我们的转换叠加会触发两次 tap，所以在 window 捕获阶段最先拦下鼠标类事件再统一转换。
    另外基础库在元素滚动后 50ms 内会取消 tap，自动化测试的「滚动到元素 → 立刻点击」会因此失效，
    转换时先等两帧让 scroll 事件派发完，必要时顺延
+6. **内置组件样式提前注入**：基础库在文档没加载完时把内置组件样式（`wx-view` 的 display、`wx-canvas` 的默认尺寸等）
+   推迟到 `window.onload` 注入。开发者工具在文档加载完后才注入基础库，那边是立即注入；这里基础库随页面同步加载，
+   首屏渲染早于 onload，canvas 这类挂载时测量尺寸的组件会量错。所以加载完成前赋给 `window.onload` 的回调改为立即执行
 
 #### 消息协议
 
@@ -257,10 +260,11 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 
 | 方向 | 基础库调用 | 宿主处理 |
 | --- | --- | --- |
-| 逻辑层 → 渲染层 | `WeixinJSBridge.publish(event, data, webviewIds)` | 克隆到目标 iframe 的 realm 后，在微任务中调用渲染层的 subscribe 回调 |
+| 逻辑层 → 渲染层 | `WeixinJSBridge.publish(event, data, webviewIds)` | 克隆到目标 iframe 的 realm 后，在微任务中调用渲染层的 subscribe 回调；`webviewIds` 为空时发给所有页面（旧版 canvas 的绘制指令就这样发，靠 canvasNumber 找到画布） |
 | 渲染层 → 逻辑层 | `WeixinJSBridge.publish(event, data)` | 同上，附带来源 webviewId |
 | 任一层 → 原生 | `WeixinJSBridge.invoke(api, args, callback)` | 交给 API 注册表；结果能同步得到时**同步回调**（基础库在带 `type` 参数的 `getSystemInfo` 等调用上依赖这一点） |
 | 原生 → 逻辑层 | `WeixinJSBridge.on(event, cb)` | `onAppRoute`、`onAppRouteDone`、`on*TaskStateChange`、`onAppEnterForeground` 等 |
+| 原生 → 渲染层 | `WeixinJSBridge.on(event, cb)` | 原生组件的事件：`onMultiPickerViewChange`、`onWebviewStartLoad` / `onWebviewFinishLoad` |
 
 数据通过 `目标window.JSON.parse(JSON.stringify(data))` 在目标 iframe 的 realm 中重建，
 避免跨 realm 的 `instanceof Array` 判断失效。
@@ -295,11 +299,40 @@ navigateTo(url)
 | system | 以模拟设备（默认 iPhone X，375×812 @3x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
 | network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
-| misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志）、登录等开放接口的模拟数据、剪贴板 |
+| picker | picker 组件的选择器弹层，见下文「原生组件」 |
+| webView | web-view 组件的网页视图，见下文「原生组件」 |
+| misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志）、临时文件、登录等开放接口的模拟数据、剪贴板 |
 | 路由 | 由 Host 实现 |
 
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。
 测试中可以用 `__wxa_test_api__.mock()` 覆盖任意 API。
+
+#### 原生组件
+
+渲染层上报的平台是 `devtools`，基础库对大多数原生组件改用开发者工具里的网页实现，宿主不用参与：
+
+| 组件 | 实现 | 状态 |
+| --- | --- | --- |
+| canvas（2d / webgl / 旧版 canvas-id）、video、map、camera、audio | 基础库的网页实现：`<canvas>`、`<video>`、腾讯地图网页 SDK、`getUserMedia` | ✅ map 需要联网；camera 需要浏览器授权摄像头；video 的 src 只能是 http(s) |
+| cover-view、cover-image、input、textarea、picker-view、editor | 基础库的网页实现 | ✅ |
+| picker | 宿主弹出选择器（`showPickerView` 等） | ✅ |
+| web-view | 宿主在页面里嵌入 iframe（`insertHTMLWebView` 等） | ✅ 有限制，见下 |
+| live-player | 渲染出 `<video>`，播放走的 `operateLivePlayer` 没有实现，浏览器也不能播 RTMP | ⏳ |
+| live-pusher、voip-room | 基础库显示「IDE 暂不支持」，与开发者工具一致 | — |
+| open-data、ad | open-data 渲染为空；ad 走广告失败分支（见伴生 SDK 子包） | — |
+
+几个需要宿主配合的地方：
+
+- **选择器**：基础库把各列的选项文字交给宿主，宿主从底部弹出选择器，按约定格式返回用户的选择。
+  日期的天数随年月变化、start/end 限制、省市区逐级联动在 `api/picker.ts` 里实现，弹层（`ui/Picker.ts`）只负责显示列。
+  多列选择器打开期间用户换列时，向渲染层派发 `onMultiPickerViewChange`，页面改了 range 后基础库调 `updateMultiPickerView` 换掉那一列。
+  地区选择器的行政区划数据取自本机开发者工具（`js/libs/region_sub_strict*`），和基础库一样不随项目分发
+- **web-view**：网页放在所在页面渲染层里的 iframe 中，跟着页面显示、隐藏和关闭。设置了 X-Frame-Options 或
+  CSP frame-ancestors 的网站不允许被嵌入，显示不出来；网页里的 `wx.miniProgram` 接口不可用。
+  基础库拿到空的业务域名列表时会把 web-view 事件里的网页地址清空，所以拉取业务域名列表（`operateWXData` 的
+  `webapi_getwxanetwork`）明确返回失败，基础库因此不做校验，等同开发者工具的「不校验业务域名」
+- **临时文件**：canvas 导出、拍照、录像的结果经 `base64ToTempFilePath` 存到开发服务器，返回 http 地址。
+  image、video 组件只原样使用 http(s) 地址，`blob:` 之类的地址会被当成页面相对路径
 
 #### 伴生 SDK 子包
 
@@ -343,6 +376,8 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 | `/__wxa__/service-bootstrap.js`、`/__wxa__/page-frame.js` | 构建产物 |
 | `/__baselib__/*` | 解包后的基础库 |
 | `/__wxa__/proxy?url=` | 网络代理 |
+| `/__wxa__/tmp` | 临时文件：`POST ?type=png` 保存，返回可直接访问的地址；随服务器进程存在 |
+| `/__wxa__/region/<districts\|streets>` | 地区选择器用的行政区划数据，取自本机开发者工具 |
 | `/__wxa__/ws` | 文件变化 / 编译错误通知 |
 | 其他 | 小程序目录下的静态资源 |
 
@@ -435,7 +470,7 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 
 **已知限制**（后续工作）：
 - 基础库 3.7.1 及以上（隔离上下文 / glass-easel）
-- canvas、video、map、live-player 等原生组件；相机、蓝牙等设备能力
+- live-player、live-pusher、voip-room、open-data 等原生组件（canvas、video、map、camera、picker、web-view 已支持，见「原生组件」）；蓝牙等设备能力
 - 插件、分包异步化、Worker
 - 页面内存状态保持的热更新
 
@@ -456,7 +491,7 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 ### Phase 4：生产优化（预计 2 周）
 
 - [ ] 支持 3.7.1+ 基础库（模拟 WeixinJSContext 隔离上下文）
-- [ ] 原生组件（canvas 优先）
+- [x] 原生组件：canvas、picker、web-view、临时文件（live-player 等见 Phase 2 已知限制）
 - [ ] 多实例并行、Docker 部署
 - [ ] 性能与压力测试
 
@@ -495,4 +530,4 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 
 ---
 
-**版本**：v1.1（2026-10-14，按实现更新）
+**版本**：v1.2（2026-10-14，补充原生组件）

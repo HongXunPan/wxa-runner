@@ -112,7 +112,7 @@ wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会�
 | 界面 | 默认模拟 iPhone X；导航栏（标题、颜色、返回、自定义导航栏）、tabBar、toast / loading / modal / actionSheet；样式中的 `env(safe-area-inset-*)` 按页面窗口取值 |
 | 网络 | request / downloadFile / uploadFile 经代理转发，connectSocket 直连 |
 | 存储 | Storage 按 appid 隔离存于 localStorage；FileSystemManager 基本操作 |
-| 启动前准备 | `wxa.setup.ts`：小程序启动前预置存储、覆盖原生 API，跳过登录等浏览器里走不通的环节 |
+| 启动前准备 | `wxa.setup.ts`：小程序启动前预置存储、覆盖原生 API、拦截请求，跳过登录等浏览器里走不通的环节 |
 | 开发体验 | 修改页面或组件的 WXML、页面 JS 后热更新，不刷新、不丢页面状态（见下文）；其他改动自动整页刷新并停留在当前页面；编译错误直接显示在页面上；`import` / `export` 自动转换为 CommonJS（带 source map） |
 | 测试 | `window.__wxa_test_api__`：等待页面、读取页面栈、mock 原生 API、读取 Storage、收集运行错误 |
 
@@ -138,6 +138,14 @@ export default defineSetup(({ env }) => ({
     login: { code: 'dev_code' },
     getLocation: { latitude: 31.23, longitude: 121.47 }
   },
+  // 拦截 wx.request：'[请求方法 ]地址'，* 匹配一段路径，** 匹配任意内容（可以不写域名）；
+  // 值是响应（body 为对象时按 JSON 返回），也可以是按请求返回响应的函数
+  network: {
+    routes: {
+      'POST **/api/auth/login': { body: { code: 200, data: { token: env.WXA_TOKEN } } },
+      'GET **/api/user/*': req => ({ status: 404, body: { msg: `没有 ${req.url}` } })
+    }
+  },
   // 声明式配置之后执行，适合异步、动态的逻辑
   async run(wxa) {
     const res = await wxa.fetch('https://test-api.example.com/dev/token');  // 经代理，无跨域限制
@@ -146,15 +154,16 @@ export default defineSetup(({ env }) => ({
 }));
 ```
 
-- **按场景选用**：启动时只检查本地 token 的项目，用 `storage` 预置 token 即可；每次启动都调 `wx.login` 的项目，
-  再用 `mock.login` 返回测试后端认可的 code
+- **按场景选用**：启动时只检查本地 token 的项目，用 `storage` 预置 token 即可；每次启动都调 `wx.login` 再请求后端
+  换 token 的项目，用 `network.routes` 拦截登录接口直接返回 token（或用 `mock.login` 返回测试后端认可的 code）
 - **环境变量**：只有 `WXA_` 开头的变量会传给 setup（它在浏览器里执行），如 `WXA_TOKEN=xxx wxa-runner dev .`；
   密钥不要直接写在 setup 文件里
-- **执行时机**：每次打开、刷新页面都会重新执行，顺序固定为 storage → mock → run；修改 setup 文件后页面自动刷新
+- **执行时机**：每次打开、刷新页面都会重新执行，顺序固定为 storage → mock → network → run；修改 setup 文件后页面自动刷新
 - **反馈**：执行结果打印在浏览器控制台（`[wxa-runner] setup 已应用`）；配置写错或执行出错时，模拟器显示错误且不启动小程序
 - **类型提示**：不安装任何依赖也能运行；把 `@open-wxa/wxa-runner-core` 加为开发依赖后可获得完整的类型提示和补全
 - 存储必须在启动前写入：基础库会把读过的存储缓存在内存里，启动后再从外部改 localStorage，小程序读不到新值
-- `wx.request` 等网络 API 不能用 mock 覆盖，请求拦截将在后续版本提供
+- `wx.request` 不能用 mock 覆盖，请用 `network.routes`；命中的请求会在控制台打印 `[wxa-runner] 拦截请求`。
+  `downloadFile`、`uploadFile`、`connectSocket` 暂不拦截
 
 ## 热更新
 

@@ -140,13 +140,13 @@ describe('setup 拦截请求', () => {
 
   it('函数形式的拦截按请求内容返回响应，可以指定状态码', async () => {
     const { target, request } = createTarget();
-    await applySetup({
+    await applySetup(defineSetup({
       network: {
         routes: {
           '**/auth/login': req => ({ status: 201, body: { method: req.method, sent: JSON.parse(String(req.data)) } })
         }
       }
-    }, target, {});
+    }), target, {});
 
     const res = await request({ url: LOGIN, method: 'POST', data: '{"code":"abc"}' });
     expect(res.statusCode).toBe(201);

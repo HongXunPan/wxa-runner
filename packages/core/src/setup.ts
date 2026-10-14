@@ -2,7 +2,7 @@
  * setup：小程序启动前准备运行环境（@open-wxa/wxa-runner-core/setup）
  *
  * 浏览器里拿不到真实的登录 code、用户信息、定位等，setup 在 App.onLaunch 之前
- * 预置存储、覆盖原生 API，让小程序直接进入「已登录」之类的状态。
+ * 预置存储、覆盖原生 API、拦截请求，让小程序直接进入「已登录」之类的状态。
  *
  *   // wxa.setup.ts（放在项目根目录自动生效，或用 --setup 指定）
  *   import { defineSetup } from '@open-wxa/wxa-runner-core/setup';
@@ -12,7 +12,7 @@
  *     mock: { login: { code: 'dev_code' } }
  *   }));
  *
- * 执行顺序固定为 storage → mock → run，每次打开或刷新页面都会重新执行。
+ * 执行顺序固定为 storage → mock → network → run，每次打开或刷新页面都会重新执行。
  */
 
 import type { ApiResult } from './runtime/host/api/registry';
@@ -57,11 +57,40 @@ export interface KnownMocks {
 
 export type MockConfig = Partial<KnownMocks> & Record<string, MockValue>;
 
+/** 被拦截的 wx.request */
+export interface MockRequest {
+  url: string;
+  /** 大写，如 POST */
+  method: string;
+  header: Record<string, string>;
+  /** 基础库序列化后交给原生层的请求体，通常是 JSON 字符串 */
+  data: unknown;
+}
+
+export interface MockResponse {
+  /** 默认 200 */
+  status?: number;
+  header?: Record<string, string>;
+  /** 字符串原样返回；其他值按 JSON 返回，小程序拿到的 res.data 是解析后的对象 */
+  body?: unknown;
+}
+
+export type RouteHandler = MockResponse | ((request: MockRequest) => MockResponse | void | Promise<MockResponse | void>);
+
+export interface NetworkConfig {
+  /**
+   * 拦截 wx.request：key 写成 '[请求方法 ]地址'，如 'POST https://api.example.com/login'。
+   * 地址里 * 匹配一段路径，** 匹配任意内容（可以不写域名），查询参数不参与匹配；没匹配上的请求照常发出
+   */
+  routes?: Record<string, RouteHandler>;
+}
+
 export interface SetupConfig {
   /** 预置到 wx.setStorage 的数据，值保持原类型（对象、数字、Date 等），覆盖同名旧值 */
   storage?: Record<string, unknown>;
   /** 按 wx API 名覆盖原生实现，如 login、getLocation */
   mock?: MockConfig;
+  network?: NetworkConfig;
   /** 声明式配置之后执行，适合异步或动态逻辑（如现场向测试后端换一个新 token） */
   run?(wxa: SetupApi): void | Promise<void>;
 }
@@ -79,6 +108,8 @@ export interface SetupApi {
     clear(): void;
   };
   mock<K extends string>(api: K, impl: K extends keyof KnownMocks ? NonNullable<KnownMocks[K]> : MockValue): void;
+  /** 与 network.routes 相同，后添加的规则优先 */
+  route(pattern: string, handler: RouteHandler): void;
   /** 经开发服务器代理发请求，没有跨域限制 */
   fetch(url: string, init?: { method?: string; header?: Record<string, string>; body?: string }): Promise<Response>;
 }

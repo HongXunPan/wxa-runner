@@ -7,11 +7,14 @@
  */
 
 import { ApiHandler, fail, ok } from './registry';
+import type { RequestRoutes } from './routes';
 
 export interface NetworkApiOptions {
   /** 向逻辑层派发事件 */
   emit: (event: string, data: Record<string, unknown>) => void;
   defaultTimeout: () => number;
+  /** setup 声明的请求拦截，只作用于 wx.request */
+  routes?: RequestRoutes;
 }
 
 interface ProxyResponse {
@@ -51,16 +54,16 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
   const createRequestTask: ApiHandler = (args, { api }) => {
     const requestTaskId = startTask(args, async (signal, id) => {
       try {
-        const res = await proxyFetch(args.url, {
-          method: (args.method || 'GET').toUpperCase(),
-          header: args.header,
-          body: args.data,
-          signal
-        });
+        const method = (args.method || 'GET').toUpperCase();
+        const mocked = await options.routes?.respond({ url: args.url, method, header: args.header || {}, data: args.data });
+        const res = mocked
+          ? { statusCode: mocked.statusCode, header: mocked.header, cookies: [] as string[], text: async () => mocked.data }
+          : await proxyFetch(args.url, { method, header: args.header, body: args.data, signal })
+            .then(proxied => ({ ...proxied, text: () => proxied.response.text() }));
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'headersReceived', header: res.header, statusCode: res.statusCode, cookies: res.cookies
         });
-        const data = await res.response.text();
+        const data = await res.text();
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'success', data, statusCode: res.statusCode, header: res.header, cookies: res.cookies, profile: {}
         });

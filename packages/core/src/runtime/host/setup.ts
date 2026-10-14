@@ -5,22 +5,26 @@
  * wx.getStorageSync 读不到新值。
  */
 
-import type { MockValue, SetupApi, SetupConfig, SetupEnv } from '../../setup';
+import type { MockValue, RouteHandler, SetupApi, SetupConfig, SetupEnv } from '../../setup';
 import { proxyFetch } from './api/network';
 import type { ApiRegistry } from './api/registry';
+import type { RequestRoutes } from './api/routes';
 import { decodeStorageValue, encodeStorageValue, MiniProgramStorage } from './api/storage';
 
 export interface SetupTarget {
   storage: MiniProgramStorage;
   api: ApiRegistry;
+  routes: RequestRoutes;
 }
 
 export interface SetupSummary {
   storage: string[];
   mock: string[];
+  network: string[];
 }
 
-const CONFIG_KEYS = ['storage', 'mock', 'run'];
+const CONFIG_KEYS = ['storage', 'mock', 'network', 'run'];
+const NETWORK_KEYS = ['routes'];
 const STORAGE_NAMESPACE = 's0';
 
 /** 基础库里这些 API 不经同名 invoke 实现，按 wx 的名字 mock 不会生效 */
@@ -33,7 +37,7 @@ const STORAGE_API = /^(get|set|remove|clear)Storage(Info)?(Sync)?$/;
  * @throws 配置写错或 setup 自身执行出错时；此时已应用的部分不会回滚，调用方不应继续启动小程序
  */
 export async function applySetup(definition: unknown, target: SetupTarget, env: SetupEnv): Promise<SetupSummary> {
-  const summary: SetupSummary = { storage: [], mock: [] };
+  const summary: SetupSummary = { storage: [], mock: [], network: [] };
   const record = (list: string[], name: string) => {
     if (!list.includes(name)) list.push(name);
   };
@@ -55,10 +59,20 @@ export async function applySetup(definition: unknown, target: SetupTarget, env: 
     record(summary.mock, api);
   };
 
+  const route = (pattern: string, handler: RouteHandler) => {
+    try {
+      target.routes.add(pattern, handler);
+    } catch (error) {
+      throw new Error(`network.routes[${JSON.stringify(pattern)}]：${(error as Error).message}`);
+    }
+    record(summary.network, pattern);
+  };
+
   const config = await resolveConfig(definition, env);
 
   for (const [key, value] of Object.entries(config.storage || {})) setStorage(key, value);
   for (const [api, impl] of Object.entries(config.mock || {})) mock(api, impl);
+  for (const [pattern, handler] of Object.entries(config.network?.routes || {})) route(pattern, handler);
 
   if (config.run) {
     const wxa: SetupApi = {
@@ -73,6 +87,7 @@ export async function applySetup(definition: unknown, target: SetupTarget, env: 
         clear: () => target.storage.clear(STORAGE_NAMESPACE)
       },
       mock: (api, impl) => mock(api, impl as MockValue),
+      route,
       fetch: (url, init = {}) => proxyFetch(url, { method: (init.method || 'GET').toUpperCase(), header: init.header, body: init.body })
         .then(res => new Response(NULL_BODY_STATUS.has(res.statusCode) ? null : res.response.body, {
           status: res.statusCode,
@@ -89,6 +104,7 @@ export function formatSetupSummary(summary: SetupSummary): string {
   const lines = ['[wxa-runner] setup 已应用'];
   if (summary.storage.length) lines.push(`  storage  ${summary.storage.join(', ')}`);
   if (summary.mock.length) lines.push(`  mock     ${summary.mock.join(', ')}`);
+  if (summary.network.length) lines.push(`  network  ${summary.network.join(', ')}`);
   return lines.join('\n');
 }
 
@@ -106,13 +122,21 @@ async function resolveConfig(definition: unknown, env: SetupEnv): Promise<SetupC
   }
   if (config.storage !== undefined && !isPlainObject(config.storage)) throw new Error('storage 需要是 { key: 值 } 形式的对象');
   if (config.mock !== undefined && !isPlainObject(config.mock)) throw new Error('mock 需要是 { API 名: 返回值或函数 } 形式的对象');
+  if (config.network !== undefined) {
+    if (!isPlainObject(config.network)) throw new Error('network 需要是 { routes: { 规则: 响应 } } 形式的对象');
+    const unknownNetwork = Object.keys(config.network).filter(key => !NETWORK_KEYS.includes(key));
+    if (unknownNetwork.length) throw new Error(`network 下未知的配置项 ${unknownNetwork.join(', ')}，可用的配置项：${NETWORK_KEYS.join(', ')}`);
+    if (config.network.routes !== undefined && !isPlainObject(config.network.routes)) {
+      throw new Error('network.routes 需要是 { 规则: 响应 } 形式的对象');
+    }
+  }
   if (config.run !== undefined && typeof config.run !== 'function') throw new Error('run 需要是函数');
   return config as SetupConfig;
 }
 
 function checkMock(api: string, impl: unknown) {
   if (TASK_APIS.has(api)) {
-    throw new Error(`mock.${api}：wx.${api} 由基础库内部的任务实现，mock 无法覆盖；请求拦截能力（network）将在后续版本提供`);
+    throw new Error(`mock.${api}：wx.${api} 由基础库内部的任务实现，mock 无法覆盖；拦截 wx.request 请用 network.routes（请求拦截）`);
   }
   if (STORAGE_API.test(api)) {
     throw new Error(`mock.${api}：存储数据请用 storage 预置，不要覆盖存储 API`);

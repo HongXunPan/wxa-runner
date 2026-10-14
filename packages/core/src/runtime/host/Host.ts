@@ -9,6 +9,7 @@ import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '.
 import { ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis } from './api/network';
+import { RequestRoutes } from './api/routes';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
 import { createSystemApis } from './api/system';
 import { createUiApis } from './api/ui';
@@ -39,6 +40,8 @@ export class Host implements HostApi {
   readonly shell: PhoneShell;
   readonly errors: FrameError[] = [];
   readonly storage: MiniProgramStorage;
+  /** setup 声明的请求拦截 */
+  readonly routes = new RequestRoutes();
   private service: { win: Window; bridge: FrameBridge } | null = null;
   private serviceLoaded!: () => void;
   private readonly serviceReady = new Promise<void>(resolve => {
@@ -387,7 +390,8 @@ export class Host implements HostApi {
       }),
       ...createNetworkApis({
         emit: (event, data) => this.emitToService(event, data),
-        defaultTimeout: () => this.info.wxConfig.networkTimeout?.request || 60000
+        defaultTimeout: () => this.info.wxConfig.networkTimeout?.request || 60000,
+        routes: this.routes
       }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMiscApis(this.info.appid)

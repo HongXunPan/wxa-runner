@@ -65,6 +65,17 @@ describe.skipIf(!ready)('DevServer', () => {
     expect(await res.text()).toMatch(/^define\("utils\/store\.js", function\(require, module, exports/);
   });
 
+  it('临时文件保存后返回可直接访问的地址，按文件类型返回 Content-Type', async () => {
+    const saved = await fetch(base + '/__wxa__/tmp?type=jpg', { method: 'POST', body: Buffer.from('jpeg-bytes') });
+    const { url } = await saved.json();
+    expect(url).toMatch(new RegExp(`^${base}/__wxa__/tmp/[\\w-]+\\.jpg$`));
+
+    const file = await fetch(url);
+    expect(file.headers.get('content-type')).toContain('image/jpeg');
+    expect(await file.text()).toBe('jpeg-bytes');
+    expect((await get('/__wxa__/tmp/missing.jpg')).status).toBe(404);
+  });
+
   it('基础库与小程序静态资源都能访问，渲染层路径下的相对资源也能解析', async () => {
     expect((await get('/__baselib__/WAWebview.js')).status).toBe(200);
     expect((await get('/app.wxss')).status).toBe(200);

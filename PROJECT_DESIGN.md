@@ -99,9 +99,13 @@ wxa-runner/
 │   │       │   ├── AppBuilder.ts      # 生成逻辑层 / 渲染层产物，按类型增量
 │   │       │   └── wxConfig.ts        # 生成 __wxConfig
 │   │       ├── server/
-│   │       │   ├── DevServer.ts       # HTTP 路由、WebSocket、文件监听
+│   │       │   ├── DevServer.ts       # HTTP 路由、WebSocket、文件变化后重新编译并通知浏览器
+│   │       │   ├── watcher.ts         # 文件监听：合并一次保存的改动，内容没变的不算
+│   │       │   ├── hmr.ts             # 改动能否热更新
 │   │       │   ├── html.ts            # 宿主 / 逻辑层 / 渲染层 HTML
-│   │       │   └── proxy.ts           # wx.request 等的转发代理
+│   │       │   ├── proxy.ts           # wx.request 等的转发代理
+│   │       │   ├── realLogin.ts       # --real-login 的真实登录接口
+│   │       │   └── setup.ts           # 编译 setup 文件
 │   │       └── runtime/               # 浏览器端（打包为 dist/runtime/host.js、frame.js）
 │   │           ├── frame.ts           # 注入 iframe：全局变量、WeixinJSBridge、设备尺寸、触摸模拟
 │   │           └── host/
@@ -109,8 +113,8 @@ wxa-runner/
 │   │               ├── PageStack.ts   # 页面栈（纯逻辑）
 │   │               ├── PageView.ts    # 单个渲染层 iframe
 │   │               ├── testApi.ts     # window.__wxa_test_api__
-│   │               ├── api/           # 原生 API：storage / system / network / ui / picker / webView / misc + 注册表
-│   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器
+│   │               ├── api/           # 原生 API：storage / system / network / ui / media / picker / webView / misc + 注册表
+│   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器、图片预览、文件选择框
 │   │
 │   └── cli/bin/wxa-runner.js          # @open-wxa/wxa-runner-cli
 │
@@ -120,7 +124,7 @@ wxa-runner/
 │   └── tabbar/
 │
 └── tests/
-    ├── unit/                          # 解包、编译、项目解析、构建、运行时纯逻辑、原生 API
+    ├── unit/                          # 解包、编译、项目解析、构建、文件监听、运行时纯逻辑、原生 API
     ├── integration/                   # DevServer 路由、网络代理
     └── e2e/                           # 真实浏览器运行 showcase 和临时小程序（原生组件等）
 ```

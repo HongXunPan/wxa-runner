@@ -37,3 +37,6 @@ jobs:
           test -x "$WXA_CHROME"
 
       - run: pnpm test
+
+      # tests/playwright：用 Playwright fixture 写的用例
+      - run: pnpm test:playwright

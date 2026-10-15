@@ -1,0 +1,33 @@
+{
+  "name": "@open-wxa/wxa-runner-playwright",
+  "version": "0.1.0",
+  "description": "Playwright fixture for wxa-runner: starts the dev server per worker, reads page data and asserts mini-program requests",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@open-wxa/wxa-runner-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.64.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.2"
+  }
+}

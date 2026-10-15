@@ -42,7 +42,10 @@ function undocumentedMembers(program: ts.Program, file: string, typeName: string
   let symbol = checker.getExportsOfModule(moduleSymbol).find(s => s.name === typeName);
   if (!symbol) throw new Error(`${file} 没有导出 ${typeName}`);
   if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
-  return checker.getPropertiesOfType(checker.getDeclaredTypeOfSymbol(symbol))
+  const members = checker.getPropertiesOfType(checker.getDeclaredTypeOfSymbol(symbol));
+  // 类型解析失败（如导入路径不对）时成员为空，检查会空转通过
+  if (!members.length) throw new Error(`${typeName} 没有解析出成员`);
+  return members
     .filter(member => !ts.displayPartsToString(member.getDocumentationComment(checker)).trim())
     .map(member => member.name);
 }

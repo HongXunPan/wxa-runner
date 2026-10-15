@@ -14,16 +14,10 @@
 ## 运行方式
 
 ```bash
-# 在项目根目录
+# 在仓库根目录
 pnpm install
 pnpm build
-
-# 启动示例
-cd examples/hello-world
-wxa-runner dev .
-
-# 或者直接指定路径
-wxa-runner dev examples/hello-world
+node packages/cli/bin/wxa-runner.js dev examples/hello-world
 ```
 
 然后在浏览器打开 http://localhost:3000
@@ -43,14 +37,3 @@ hello-world/
         ├── index.wxml  # 页面结构
         └── index.wxss  # 页面样式
 ```
-
-## 注意事项
-
-**Phase 1 限制**:
-- ⚠️  需要手动提供编译后的 WXML/WXSS（或者提取官方基础库）
-- ⚠️  部分 API 尚未实现
-
-**Phase 2 将支持**:
-- ✅ 自动编译 WXML/WXSS
-- ✅ 热更新 (HMR)
-- ✅ 更多 wx.* API

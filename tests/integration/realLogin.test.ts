@@ -1,7 +1,7 @@
 /**
  * 真实登录接口：开发服务器带着开发者 ticket 向微信换取 code 和手机号
  *
- * 微信服务器用 fetch 桩代替，响应取自 docs/WECHAT_AUTH_REVERSE_ENGINEERING_REPORT.md 里的实测结果；
+ * 微信服务器用 fetch 桩代替，响应格式取自对微信服务器的实测；
  * 访问本地接口用 http.request，才能自定义 Host 头。
  */
 

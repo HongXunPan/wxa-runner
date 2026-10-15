@@ -5,7 +5,7 @@
  *   POST /phone-number  → { data, encryptedData, iv }，code 在 data（JSON 字符串）里，与基础库的约定一致
  *
  * 失败时返回 500 和 { error: 原因 }。开发者 ticket 只留在 Node 进程里，接口只接受本机访问，
- * 并校验 Host 头防止 DNS rebinding。接口协议见 docs/WECHAT_AUTH_REVERSE_ENGINEERING_REPORT.md
+ * 并校验 Host 头防止 DNS rebinding。
  */
 
 import express, { NextFunction, Request, Response, Router } from 'express';

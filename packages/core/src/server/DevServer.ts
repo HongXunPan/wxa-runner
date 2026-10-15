@@ -8,6 +8,7 @@
  *   /__wxa__/webview/<page>.html  渲染层（路径与页面一致，wxml 里的相对资源路径因此能正确解析）
  *   /__wxa__/module/<file>.js  单个业务 JS 模块
  *   /__wxa__/service-templates.js、page-templates.js  两层的模板（热更新时重新下发）
+ *   /__wxa__/page-styles.js    渲染层的样式（热更新时重新下发）
  *   /__baselib__/*             官方基础库
  *   /__wxa__/proxy?url=        网络代理
  *   /__wxa__/tmp               临时文件：POST ?type=png 保存，返回可直接访问的地址
@@ -230,6 +231,10 @@ export class DevServer {
 
     app.get('/__wxa__/page-templates.js', this.withBuild((build, _req, res) => {
       res.type('js').send(build.pageTemplates);
+    }));
+
+    app.get('/__wxa__/page-styles.js', this.withBuild((build, _req, res) => {
+      res.type('js').send(build.pageStyles);
     }));
 
     app.get('/__wxa__/page-frame.js', this.withBuild((build, _req, res) => {

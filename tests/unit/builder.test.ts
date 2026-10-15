@@ -153,6 +153,13 @@ describe.skipIf(!hasToolchain())('完整构建', () => {
     expect(result.pageTemplates).not.toContain('color: #333');
   });
 
+  it('热更新用的渲染层样式含公共样式和各页面的样式，不含模板', async () => {
+    const result = await new AppBuilder(new MiniProgram(demoProject())).build();
+    expect(result.pageStyles).toContain('color: #333');
+    expect(result.pageStyles).toContain('__wxAppCode__["pages/a/a.wxss"] = setCssToHead');
+    expect(result.pageStyles).not.toContain('$gwx');
+  });
+
   it('app.wxss 和页面样式 @import 的共享样式文件一起编译（uni-app 的 common/main.wxss）', async () => {
     const root = demoProject();
     fs.mkdirSync(path.join(root, 'common'));

@@ -1,7 +1,8 @@
 /**
- * 热更新：不刷新宿主，应用模板和页面逻辑的改动，保留页面状态（哪些改动能热更新见 server/hmr.ts）
+ * 热更新：不刷新宿主，应用样式、模板和页面逻辑的改动，保留页面状态（哪些改动能热更新见 server/hmr.ts）
  *
- * 借助基础库为开发者工具准备的接口 __virtualDOM__.updateWxAppCode（开关见 server/html.ts）：
+ * 样式在每个渲染层里原地替换（见 updateStyles）；模板和逻辑借助基础库为开发者工具准备的接口
+ * __virtualDOM__.updateWxAppCode（开关见 server/html.ts）：
  * - 模板：按模板路径更新，基础库用实例当前的 data 重新渲染
  * - Page() 构造的页面：不走基础库按 .js 路径的更新——那会重新挂载页面（onUnload → onLoad），data 回到初始值。
  *   这里把新方法换到活着的页面实例上，再重新注册 Page，之后新打开的页面用新代码
@@ -15,6 +16,7 @@ export interface HotUpdate {
   version: number;
   templates: string[];
   scripts: string[];
+  styles: string[];
 }
 
 /**
@@ -22,8 +24,10 @@ export interface HotUpdate {
  */
 export async function applyHotUpdate(host: Host, update: HotUpdate): Promise<void> {
   const hasTemplates = update.templates.length > 0;
+  const hasStyles = update.styles.length > 0;
   const v = `?v=${update.version}`;
-  const [pageTemplates, serviceTemplates, moduleScripts] = await Promise.all([
+  const [pageStyles, pageTemplates, serviceTemplates, moduleScripts] = await Promise.all([
+    hasStyles ? fetchText(`/__wxa__/page-styles.js${v}`) : '',
     hasTemplates ? fetchText(`/__wxa__/page-templates.js${v}`) : '',
     hasTemplates ? fetchText(`/__wxa__/service-templates.js${v}`) : '',
     Promise.all(update.scripts.map(id => fetchText(`/__wxa__/module/${encodeURI(id)}.js${v}`)))
@@ -33,6 +37,12 @@ export async function applyHotUpdate(host: Host, update: HotUpdate): Promise<voi
   await host.enqueueRoute(async () => {
     const service = host.serviceWindow() as any;
     if (!service?.__virtualDOM__?.updateWxAppCode) throw new Error('基础库的热更新开关没有打开');
+
+    if (hasStyles) {
+      for (const page of host.livePages()) {
+        if (page.win) updateStyles(page.win as any, pageStyles);
+      }
+    }
 
     if (hasTemplates) {
       // 渲染层先换上新模板，逻辑层随后发出的重新渲染指令才能对上
@@ -44,6 +54,52 @@ export async function applyHotUpdate(host: Host, update: HotUpdate): Promise<voi
 
     update.scripts.forEach((id, index) => updateScript(service, host, id, moduleScripts[index]));
   });
+}
+
+/**
+ * 重新执行公共样式（app.wxss、被 @import 的文件），再重放这个渲染层用过的页面和组件样式。
+ * 不区分改了哪个文件：没改的样式写回相同的内容
+ *
+ * 基础库按「路径:组件 class 前缀」登记样式表，同一个 key 再次写入时原地替换 <style> 的内容。
+ * 每次写入会多登记一个 rpx 重算回调（窗口尺寸变化时重新生成样式），回调按登记顺序执行，最新的样式最后写入
+ *
+ * 不用基础库为 .wxss 登记的 updateWxAppCode 回调：它按组件的方式注入页面样式，页面里合法的 ID、标签选择器
+ * 每次都会报「组件中不允许」的警告，page-isolated 的页面还会换成带组件前缀的另一份样式、旧样式留在原处
+ */
+function updateStyles(win: any, code: string) {
+  const sheets: Record<string, StyleSheetEntry> | undefined = win.__styleSheetManager2__?._pathMap;
+  if (!sheets) throw new Error('基础库没有样式表管理器，无法热替换样式');
+  const applied = Object.keys(sheets);
+  win.eval(code);
+
+  for (const key of applied) {
+    const [, file, classPrefix] = /^\.\/(.+\.wxss):(.*)$/.exec(key) || [];
+    // app.wxss 等公共样式没有注册到 __wxAppCode__，执行 code 时已经替换
+    const inject = file && win.__wxAppCode__[file];
+    if (typeof inject === 'function') inject(classPrefix);
+  }
+  restoreSheetOrder(Object.values(sheets));
+  // 与基础库自己更新样式后一样通知组件重新布局，如 movable-area 重新计算尺寸
+  win.wx.triggerPageReRender();
+}
+
+interface StyleSheetEntry {
+  inserted: boolean;
+  style: HTMLStyleElement;
+}
+
+/**
+ * 加载时为空的样式表只登记、不插入页面，第一次写入内容时追加在 head 末尾，排到了本该在它后面的样式之后。
+ * 按登记顺序（即加载时的注入顺序）挪回原位，层叠结果才与刷新后一致
+ */
+function restoreSheetOrder(sheets: StyleSheetEntry[]) {
+  let next: HTMLStyleElement | null = null;
+  for (const { inserted, style } of sheets.reverse()) {
+    // 被基础库移出页面的不参与排序，如 page-isolated 页面里的 app.wxss
+    if (!inserted || !style.isConnected) continue;
+    if (next && style.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_PRECEDING) next.before(style);
+    next = style;
+  }
 }
 
 function updateTemplates(win: any, code: string, units: string[]) {

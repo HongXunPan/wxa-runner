@@ -11,28 +11,47 @@ describe('热更新分流', () => {
   it('页面和组件自己的 WXML 改动走模板热更新', () => {
     expect(planHotUpdate(['pages/index/index.wxml', 'components/badge/badge.wxml'], units)).toEqual({
       templates: ['pages/index/index', 'components/badge/badge'],
-      scripts: []
+      scripts: [],
+      styles: []
     });
   });
 
   it('页面和组件的 JS 改动走逻辑热更新', () => {
     expect(planHotUpdate(['pages/detail/detail.js', 'components/badge/badge.js'], units)).toEqual({
       templates: [],
-      scripts: ['pages/detail/detail', 'components/badge/badge']
+      scripts: ['pages/detail/detail', 'components/badge/badge'],
+      styles: []
     });
   });
 
-  it('同一次保存里页面的 WXML 和 JS 一起热更新', () => {
-    expect(planHotUpdate(['pages/index/index.wxml', 'pages/index/index.js'], units)).toEqual({
+  it('页面和组件的 WXSS 改动走样式热替换', () => {
+    expect(planHotUpdate(['pages/index/index.wxss', 'components/badge/badge.wxss'], units)).toEqual({
+      templates: [],
+      scripts: [],
+      styles: ['pages/index/index', 'components/badge/badge']
+    });
+  });
+
+  it.each([
+    ['app.wxss', 'app'],
+    ['styles/common.wxss', 'styles/common']
+  ])('%s 这类公共样式（app.wxss、被 @import 的文件）改动也走样式热替换', (file, id) => {
+    expect(planHotUpdate([file], units)).toEqual({ templates: [], scripts: [], styles: [id] });
+  });
+
+  it('同一次保存里页面的 WXML、JS 和 WXSS 一起热更新', () => {
+    expect(planHotUpdate(['pages/index/index.wxml', 'pages/index/index.js', 'pages/index/index.wxss'], units)).toEqual({
       templates: ['pages/index/index'],
-      scripts: ['pages/index/index']
+      scripts: ['pages/index/index'],
+      styles: ['pages/index/index']
     });
   });
 
   it('同一个文件连续变化只更新一次', () => {
     expect(planHotUpdate(['pages/index/index.js', 'pages/index/index.js'], units)).toEqual({
       templates: [],
-      scripts: ['pages/index/index']
+      scripts: ['pages/index/index'],
+      styles: []
     });
   });
 
@@ -43,7 +62,6 @@ describe('热更新分流', () => {
     ['utils/format.js', '普通模块要沿依赖图更新，尚未支持'],
     ['utils/format.wxs', 'wxs 会被多个模板引用'],
     ['templates/item.wxml', '被 import / include 的模板会影响多个页面'],
-    ['pages/index/index.wxss', '样式热更新尚未支持'],
     ['wxa.setup.js', 'setup 必须在启动前执行'],
     ['../wxa.setup.ts', 'setup 必须在启动前执行']
   ])('%s 改动需要整页刷新（%s）', file => {

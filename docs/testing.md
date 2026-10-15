@@ -39,17 +39,40 @@ test.afterEach(async ({ page }) => {
 | `ready` | 小程序启动完成后 resolve |
 | `currentPage()` / `pageStack()` | 当前页 / 整个页面栈，每页含 `path`、`query`、`webviewId`、`frameName`（可用于 `page.frame({ name })`） |
 | `waitForPage(path, timeout?)` | 等到指定页面成为当前页，默认超时 10 秒 |
+| `pageData(path?)` | 页面的 `data`（拷贝）。不传 `path` 读当前页；页面不在栈里时为 `null` |
+| `callPageMethod(name, ...args)` | 调用当前页的方法，返回方法的返回值（返回 Promise 时等它完成）；参数要能 JSON 序列化 |
 | `mock(api, impl)` / `unmock(api?)` | 覆盖原生 API：对象作为返回结果，函数按调用参数返回；`unmock()` 不传参数时清除全部 |
+| `route(pattern, handler)` / `unroute(pattern?)` | 拦截 `wx.request`，写法同 setup 的 [`network.routes`](./setup.md#拦截请求)，后添加的优先；`unroute()` 不传参数时删除全部 |
+| `requests(pattern?)` / `clearRequests()` | 小程序发出的 `wx.request`（方法、地址、请求头、请求体 `data`、命中的拦截规则 `routedBy`），被拦截的和经代理转发的都有；可按规则筛选 |
 | `navigateTo` / `navigateBack` / `redirectTo` / `reLaunch` / `switchTab` | 直接跳转页面 |
 | `getStorage(key)` / `clearStorage()` | 读取、清空小程序的 Storage |
 | `errors()` | 逻辑层、渲染层的运行时错误，以及业务代码调用过的未实现 wx API（`api` 为 API 名称，每个 API 记一次） |
+
+## 启动前声明 mock 和拦截
+
+`App.onLaunch`、首页 `onLoad` 里就调用的 API，等 `ready` 之后再 mock 已经晚了。除了写进 [setup](./setup.md)，
+也可以在页面脚本执行前定义 `window.__wxa_before_launch__`：宿主在 setup 之后、小程序启动前调用它并等它完成，
+这里的 mock 覆盖 setup 的同名 mock。
+
+```ts
+await page.addInitScript(() => {
+  window.__wxa_before_launch__ = api => {
+    api.mock('login', { code: 'test_code' });
+    api.route('POST **/api/auth/login', { body: { token: 'test-token' } });
+  };
+});
+await page.goto('http://localhost:3000/');
+```
+
+函数可以是 async 的。抛错时模拟器显示错误，小程序不启动。
 
 ## 注意事项
 
 - 跳转后如果新旧页面有同一个选择器，先用 `waitForPage` 等跳转完成，避免断言落在上一个页面上
 - 没有实现的 wx API 仍返回成功，以免打断业务代码，但会在 `errors()` 里记一条；基础库内部调用的原生接口不记。
-  用到的请 mock 掉。`onLaunch`、首页 `onLoad` 这类启动阶段就调用的，等 `ready` 后再 mock 已经晚了，要在 [setup](./setup.md) 里 mock
-- `wx.request` 不能 mock，要在 setup 里用 `network.routes` 拦截，见 [setup.md](./setup.md#拦截请求)
+  用到的请 mock 掉。`onLaunch`、首页 `onLoad` 这类启动阶段就调用的，等 `ready` 后再 mock 已经晚了，
+  要在 [setup](./setup.md) 或 [`__wxa_before_launch__`](#启动前声明-mock-和拦截) 里 mock
+- `wx.request` 不能 mock，要用 `route` 或 setup 的 `network.routes` 拦截，见 [setup.md](./setup.md#拦截请求)
 
 ## 选择图片
 

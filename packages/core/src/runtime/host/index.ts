@@ -7,7 +7,7 @@ import { Host, LaunchTarget } from './Host';
 import { applyHotUpdate, HotUpdate } from './hmr';
 import { PageStackRestore } from './pageStackRestore';
 import { applySetup, formatSetupSummary } from './setup';
-import { installTestApi } from './testApi';
+import { installTestApi, WxaTestApi } from './testApi';
 import { PhoneShell } from './ui/PhoneShell';
 
 async function main() {
@@ -29,9 +29,10 @@ async function main() {
   const ready = new Promise<void>(resolve => {
     markReady = resolve;
   });
-  installTestApi(host, ready);
+  const testApi = installTestApi(host, ready);
 
   if (info.setup && !(await runSetup(host, info.setup))) return;
+  if (!(await runBeforeLaunch(host, testApi))) return;
   await host.start(restore.launchTarget(info.pages, launchTarget(info)));
   await restore.reopen(host);
   markReady();
@@ -52,6 +53,23 @@ async function runSetup(host: Host, setup: NonNullable<AppInfo['setup']>): Promi
   } catch (error) {
     console.error('[wxa-runner] setup 执行失败', error);
     host.shell.showError(`setup 执行失败\n\n${(error as Error).message}`);
+    return false;
+  }
+}
+
+/**
+ * 执行测试工具在页面脚本之前定义的 window.__wxa_before_launch__。排在 setup 之后，
+ * 这里声明的 mock 覆盖 setup 的同名 mock；失败时同 setup，显示错误、不启动小程序
+ */
+async function runBeforeLaunch(host: Host, testApi: WxaTestApi): Promise<boolean> {
+  const hook = window.__wxa_before_launch__;
+  if (typeof hook !== 'function') return true;
+  try {
+    await hook(testApi);
+    return true;
+  } catch (error) {
+    console.error('[wxa-runner] __wxa_before_launch__ 执行失败', error);
+    host.shell.showError(`启动前的测试准备（__wxa_before_launch__）执行失败\n\n${(error as Error).message}`);
     return false;
   }
 }

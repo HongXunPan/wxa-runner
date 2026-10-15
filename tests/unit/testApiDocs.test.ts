@@ -36,7 +36,9 @@ function documentedMembers(): Set<string> {
 /** 编辑器悬停时看不到说明的成员：没有注释，经映射类型复用的注释也算有 */
 function undocumentedMembers(program: ts.Program, file: string, typeName: string): string[] {
   const checker = program.getTypeChecker();
-  const moduleSymbol = checker.getSymbolAtLocation(program.getSourceFile(file)!)!;
+  const source = program.getSourceFile(file);
+  if (!source) throw new Error(`找不到 ${file}`);
+  const moduleSymbol = checker.getSymbolAtLocation(source)!;
   let symbol = checker.getExportsOfModule(moduleSymbol).find(s => s.name === typeName);
   if (!symbol) throw new Error(`${file} 没有导出 ${typeName}`);
   if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);

@@ -9,7 +9,7 @@ import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '.
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
-import { createNetworkApis } from './api/network';
+import { createNetworkApis, RecordedRequest } from './api/network';
 import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
@@ -43,10 +43,12 @@ const PAGE_LOAD_TIMEOUT = 15000;
 export class Host implements HostApi {
   readonly device;
   readonly errors: FrameError[] = [];
+  /** 小程序发出的 wx.request，按发出顺序 */
+  readonly requests: RecordedRequest[] = [];
   readonly api = new ApiRegistry(context => this.reportUnimplemented(context));
   readonly shell: PhoneShell;
   readonly storage: MiniProgramStorage;
-  /** setup 声明的请求拦截 */
+  /** setup 和测试 API 声明的请求拦截 */
   readonly routes = new RequestRoutes();
   private service: { win: Window; bridge: FrameBridge } | null = null;
   private serviceLoaded!: () => void;
@@ -422,7 +424,8 @@ export class Host implements HostApi {
       ...createNetworkApis({
         emit: (event, data) => this.emitToService(event, data),
         defaultTimeout: () => this.info.wxConfig.networkTimeout?.request || 60000,
-        routes: this.routes
+        routes: this.routes,
+        onRequest: request => this.requests.push(request)
       }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMediaApis({
@@ -446,7 +449,7 @@ export class Host implements HostApi {
 }
 
 /** 在目标 iframe 的 realm 中重建数据，避免跨 realm 的 instanceof 判断失效 */
-function cloneInto<T>(win: Window, value: T): T {
+export function cloneInto<T>(win: Window, value: T): T {
   if (value === undefined) return value;
   return (win as any).JSON.parse(JSON.stringify(value));
 }

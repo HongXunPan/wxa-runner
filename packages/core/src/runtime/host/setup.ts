@@ -28,7 +28,7 @@ const NETWORK_KEYS = ['routes'];
 const STORAGE_NAMESPACE = 's0';
 
 /** 基础库里这些 API 不经同名 invoke 实现，按 wx 的名字 mock 不会生效 */
-const TASK_APIS = new Set(['request', 'downloadFile', 'uploadFile', 'connectSocket']);
+export const TASK_APIS = new Set(['request', 'downloadFile', 'uploadFile', 'connectSocket']);
 const STORAGE_API = /^(get|set|remove|clear)Storage(Info)?(Sync)?$/;
 
 /**

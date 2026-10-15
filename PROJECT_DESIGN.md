@@ -299,6 +299,7 @@ navigateTo(url)
 | system | 以模拟设备（默认 iPhone X，375×812 @3x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
 | network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
+| media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
 | webView | web-view 组件的网页视图，见下文「原生组件」 |
 | misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志）、临时文件、登录等开放接口的模拟数据、剪贴板 |
@@ -334,8 +335,12 @@ navigateTo(url)
   网页内自己跳转时，同源网页报告新地址并触发 load，跨域网页读不到地址就不报；iframe 加载失败没有事件，binderror 不会触发。
   基础库拿到空的业务域名列表时会把 web-view 事件里的网页地址清空，所以拉取业务域名列表（`operateWXData` 的
   `webapi_getwxanetwork`）明确返回失败，基础库因此不做校验，等同开发者工具的「不校验业务域名」
-- **临时文件**：canvas 导出、拍照、录像的结果经 `base64ToTempFilePath` 存到开发服务器，返回 http 地址。
+- **临时文件**：canvas 导出、拍照、录像的结果（经 `base64ToTempFilePath`）和选中的图片都存到开发服务器，返回 http 地址。
   image、video 组件只原样使用 http(s) 地址，`blob:` 之类的地址会被当成页面相对路径
+- **选图**：「从手机相册选择」和「拍摄」都打开浏览器的文件选择框（拍摄带 `capture`，手机浏览器上会打开相机）。
+  和真机一样，两种来源都可选时先弹菜单。浏览器只允许在用户点击后的几秒内打开文件选择框（页面里的点击也算，会传到宿主页），
+  没有经过点击就调用时也先弹菜单，用户点菜单就是一次点击；否则选择框打不开，回调永远不来。
+  `chooseMedia` 只支持图片。`previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
 
 #### 伴生 SDK 子包
 

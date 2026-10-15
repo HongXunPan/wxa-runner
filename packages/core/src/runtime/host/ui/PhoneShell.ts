@@ -5,6 +5,7 @@
 import type { DeviceProfile } from '../../types';
 import { menuButtonRect, NAVIGATION_BAR_HEIGHT, TAB_BAR_HEIGHT } from '../api/system';
 import { element } from './dom';
+import { openImagePreview } from './ImagePreview';
 import { openPicker, PickerOptions, PickerSession } from './Picker';
 import { DEVICE_BEZEL, SHELL_CSS, STAGE_GAP, STAGE_PADDING } from './styles';
 
@@ -388,6 +389,10 @@ export class PhoneShell {
 
   showPicker(options: PickerOptions): PickerSession {
     return openPicker(this.overlay, options);
+  }
+
+  showImagePreview(urls: string[], current: number) {
+    openImagePreview(this.overlay, urls, current);
   }
 
   showError(message: string) {

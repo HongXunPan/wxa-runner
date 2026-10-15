@@ -104,6 +104,7 @@ test('提交后跳转到结果页', async ({ page }) => {
 | 路由 | navigateTo、redirectTo 等页面路由，10 层页面栈，tabBar |
 | 界面 | 导航栏、tabBar、toast / modal / actionSheet，默认模拟 iPhone X |
 | 组件 | picker、canvas、camera、web-view |
+| 媒体 | chooseImage、chooseMedia（只能选图片）由浏览器选文件，previewImage、getImageInfo，保存到相册即下载 |
 | 网络 | request、上传下载经代理转发（没有 CORS 限制），WebSocket |
 | 存储 | Storage、FileSystemManager 基本操作 |
 
@@ -113,7 +114,7 @@ test('提交后跳转到结果页', async ({ page }) => {
 
 - 基础库最高 3.7.0（[#9](https://github.com/open-wxa/wxa-runner/issues/9)）
 - 没有实现的原生 API 会返回成功，测试中可以从 `errors()` 发现（见 [docs/testing.md](./docs/testing.md#注意事项)）
-- 不支持 video、map、音频、蓝牙，以及 `chooseImage` 等媒体选择（[#7](https://github.com/open-wxa/wxa-runner/issues/7)、[#8](https://github.com/open-wxa/wxa-runner/issues/8)）
+- 不支持 video、map、音频、蓝牙（[#8](https://github.com/open-wxa/wxa-runner/issues/8)），`chooseMedia` 不能选视频
 - 不支持插件、分包异步化、Worker（[#10](https://github.com/open-wxa/wxa-runner/issues/10)）
 - 没有开发者工具时（如 Linux、CI）：只支持 x86-64；编译器版本较旧，模板运行时有少量差异（如单页最多 16000 个节点）；地区选择器不可用
 

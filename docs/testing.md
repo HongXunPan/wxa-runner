@@ -51,6 +51,24 @@ test.afterEach(async ({ page }) => {
   用到的请 mock 掉。`onLaunch`、首页 `onLoad` 这类启动阶段就调用的，等 `ready` 后再 mock 已经晚了，要在 [setup](./setup.md) 里 mock
 - `wx.request` 不能 mock，要在 setup 里用 `network.routes` 拦截，见 [setup.md](./setup.md#拦截请求)
 
+## 选择图片
+
+`wx.chooseImage`、`wx.chooseMedia` 会打开浏览器的文件选择框，用 Playwright 的 `filechooser` 事件直接给文件，不弹系统窗口。
+和真机一样，相册和拍摄都可选（默认）时先弹「拍摄 / 从手机相册选择」菜单，要先点菜单项；只允许相册或拍摄时直接打开文件选择框。
+
+```ts
+await current.locator('#avatar').click();
+const [chooser] = await Promise.all([
+  page.waitForEvent('filechooser'),
+  page.getByRole('button', { name: '从手机相册选择' }).click()
+]);
+await chooser.setFiles('fixtures/avatar.png');
+```
+
+选中的图片存成开发服务器上的临时文件，页面拿到的是 http 地址，可以直接显示和 `uploadFile`。
+`chooser.setFiles([])` 等于用户关掉选择框，页面收到 `cancel`。`previewImage` 打开的预览层可以用
+`page.getByRole('dialog', { name: '图片预览' })` 找到。
+
 ## 类型
 
 第一行的引用为 `window.__wxa_test_api__` 提供类型，也可以写进 tsconfig 的 `compilerOptions.types`。

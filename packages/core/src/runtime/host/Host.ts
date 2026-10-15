@@ -7,6 +7,7 @@
 
 import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
+import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis } from './api/network';
 import { createPickerApis, fetchRegionData } from './api/picker';
@@ -17,6 +18,7 @@ import { createUiApis } from './api/ui';
 import { createWebViewApis } from './api/webView';
 import { PageStack } from './PageStack';
 import { PageView } from './PageView';
+import { chooseFiles, hasUserActivation } from './ui/fileChooser';
 import { NavigationState, PhoneShell } from './ui/PhoneShell';
 
 export type OpenType = 'appLaunch' | 'navigateTo' | 'navigateBack' | 'redirectTo' | 'reLaunch' | 'switchTab';
@@ -423,6 +425,12 @@ export class Host implements HostApi {
         routes: this.routes
       }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
+      ...createMediaApis({
+        showActionSheet: options => this.shell.showActionSheet(options),
+        chooseFiles,
+        hasUserActivation,
+        showImagePreview: (urls, current) => this.shell.showImagePreview(urls, current)
+      }),
       ...createPickerApis({
         showPicker: options => this.shell.showPicker(options),
         emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data),

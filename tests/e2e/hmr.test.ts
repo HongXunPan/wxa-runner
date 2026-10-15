@@ -69,11 +69,12 @@ function miniProgram() {
     'pages/index/index.json': {},
     'pages/index/index.js': INDEX_JS,
     'pages/index/index.wxml': INDEX_WXML,
-    'pages/index/index.wxss': '',
+    'pages/index/index.wxss': '#loads { color: rgb(20, 20, 20); }',
     'pages/detail/detail.json': {},
     'pages/detail/detail.js': "Page({ data: { tag: 'old' } });",
     'pages/detail/detail.wxml': '<view id="tag">{{tag}}</view>',
-    'pages/detail/detail.wxss': '',
+    'pages/detail/detail.wxss': '@import "../../styles/common.wxss";',
+    'styles/common.wxss': '',
     'pages/vue/vue.json': {},
     'pages/vue/vue.js': VUE_PAGE_JS,
     'pages/vue/vue.wxml': '<view id="tag">{{tag}}</view><view id="n">{{n}}</view><button id="inc" bindtap="inc">inc</button>',
@@ -114,6 +115,20 @@ describe.skipIf(!ready)('热更新', () => {
   const markHost = () => page.evaluate(() => ((window as any).__hmrMarker = true));
   const hostReloaded = async () => !(await page.evaluate(() => (window as any).__hmrMarker));
   const tap = async (selector: string) => (await current()).click(selector);
+  /** 页面栈里第 index 页的渲染层，不一定在前台 */
+  const frameAt = async (index: number): Promise<Frame> => {
+    const { frameName } = (await page.evaluate(() => window.__wxa_test_api__.pageStack()))[index];
+    return page.frame({ name: frameName })!;
+  };
+  const waitForColor = (frame: Frame, selector: string, color: string) => frame.waitForFunction(
+    ([s, c]) => {
+      const element = document.querySelector(s);
+      return !!element && getComputedStyle(element).color === c;
+    },
+    [selector, color] as const,
+    { timeout: 10000 }
+  );
+  const colorOf = async (selector: string) => (await current()).evaluate(s => getComputedStyle(document.querySelector(s)!).color, selector);
   const waitForPage = (pagePath: string) => page.evaluate(p => window.__wxa_test_api__.waitForPage(p), pagePath);
   const stack = () => page.evaluate(() => window.__wxa_test_api__.pageStack().map(({ path, query }) => ({ path, query })));
   const waitForReload = async () => {
@@ -176,6 +191,76 @@ describe.skipIf(!ready)('热更新', () => {
     edit('components/badge/badge.wxml', wxml => wxml.replace('n={{n}}', '徽标 {{n}}'));
 
     await waitForText('#badge wx-view', '徽标 2');
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('开发者修改页面 WXSS 后，新样式直接生效、删掉的规则不再生效，页面不刷新、已有状态保留', async () => {
+    await tap('#add');
+    await tap('#add');
+    await waitForText('#count', '2');
+
+    edit('pages/index/index.wxss', () => '#count { color: rgb(1, 2, 3); }');
+
+    await waitForColor(await current(), '#count', 'rgb(1, 2, 3)');
+    expect(await colorOf('#loads')).not.toBe('rgb(20, 20, 20)');
+    expect(await textOf('#count')).toBe('2');
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('开发者在加载时为空的 app.wxss 里写入样式后，页面自己的同名规则仍然优先，与刷新后一致', async () => {
+    edit('app.wxss', () => '#loads { color: rgb(255, 0, 0); } #count { color: rgb(30, 30, 30); }');
+
+    await waitForColor(await current(), '#count', 'rgb(30, 30, 30)');
+    expect(await colorOf('#loads')).toBe('rgb(20, 20, 20)');
+  });
+
+  it('开发者修改 WXSS 后，渲染层的组件收到重新布局的通知', async () => {
+    // 基础库的组件（如 movable-area 重新计算尺寸）只靠 pageReRender 事件得知样式变了，事件本身就是契约。
+    // 页面打开约 300ms 后宿主发出 onAppRouteDone，基础库也会派发一次，先等它过去；
+    // 再只认样式已经换新时收到的通知
+    const frame = await current();
+    await page.waitForTimeout(500);
+    await frame.evaluate(() => document.addEventListener('pageReRender', () => {
+      if (getComputedStyle(document.querySelector('#count')!).color === 'rgb(1, 2, 3)') (window as any).__reRendered = true;
+    }));
+
+    edit('pages/index/index.wxss', () => '#count { color: rgb(1, 2, 3); }');
+
+    await frame.waitForFunction(() => (window as any).__reRendered, undefined, { timeout: 10000 });
+  });
+
+  it('开发者修改组件 WXSS 后，组件换上新样式，组件内部状态保留', async () => {
+    await tap('#badge wx-button');
+    await waitForText('#badge wx-view', 'n=1');
+
+    edit('components/badge/badge.wxss', () => '.badge-n { color: rgb(4, 5, 6); }');
+
+    await waitForColor(await current(), '#badge wx-view', 'rgb(4, 5, 6)');
+    expect(await textOf('#badge wx-view')).toBe('n=1');
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('开发者修改 app.wxss 后，页面栈里前台和后台的页面都换上新样式', async () => {
+    await tap('#add');
+    await waitForText('#count', '1');
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail'));
+    await waitForPage('pages/detail/detail');
+
+    edit('app.wxss', () => 'page { color: rgb(7, 8, 9); }');
+
+    await waitForColor(await frameAt(1), '#tag', 'rgb(7, 8, 9)');
+    await waitForColor(await frameAt(0), '#count', 'rgb(7, 8, 9)');
+    expect((await (await frameAt(0)).textContent('#count'))?.trim()).toBe('1');
+    expect(await hostReloaded()).toBe(false);
+  });
+
+  it('开发者修改被 @import 的样式文件后，引用它的页面换上新样式', async () => {
+    await page.evaluate(() => window.__wxa_test_api__.navigateTo('/pages/detail/detail'));
+    await waitForPage('pages/detail/detail');
+
+    edit('styles/common.wxss', () => '#tag { color: rgb(10, 11, 12); }');
+
+    await waitForColor(await current(), '#tag', 'rgb(10, 11, 12)');
     expect(await hostReloaded()).toBe(false);
   });
 

@@ -92,7 +92,11 @@ function currentHost(): Host | undefined {
 
 async function hotUpdate(update: HotUpdate, restore: PageStackRestore) {
   const host = currentHost();
-  const files = [...update.templates.map(id => id + '.wxml'), ...update.scripts.map(id => id + '.js')].join(', ');
+  const files = [
+    ...update.styles.map(id => id + '.wxss'),
+    ...update.templates.map(id => id + '.wxml'),
+    ...update.scripts.map(id => id + '.js')
+  ].join(', ');
   try {
     if (!host) throw new Error('宿主尚未启动');
     await applyHotUpdate(host, update);

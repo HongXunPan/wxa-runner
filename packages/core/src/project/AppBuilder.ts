@@ -8,9 +8,9 @@
  *      require("app.js")，再依次 require 组件和页面
  *
  * 渲染层（page-frame）:
- *   1. 完整版 $gwx（wcc -cc）
- *   2. wcsc 的公共样式运行时 + app.wxss
- *   3. 每个页面/组件的 __wxAppCode__ json / wxml / wxss
+ *   1. 完整版 $gwx（wcc -cc）与每个页面/组件的 __wxAppCode__ json / wxml（pageTemplates）
+ *   2. wcsc 的公共样式运行时 + app.wxss，与每个页面/组件的 __wxAppCode__ wxss（pageStyles）
+ *   两部分在热更新时分别下发
  *   样式和模板里的 env(safe-area-inset-*) 改写成 CSS 变量，见 rewriteSafeAreaInsets
  */
 
@@ -30,6 +30,8 @@ export interface BuildResult {
   pageFrame: string;
   /** 渲染层的 $gwx 与 __wxAppCode__ json/wxml，不含样式（热更新时单独下发） */
   pageTemplates: string;
+  /** 渲染层的样式：公共样式立即注入，页面和组件的样式注册到 __wxAppCode__（热更新时单独下发） */
+  pageStyles: string;
   pages: string[];
   components: string[];
   durationMs: number;
@@ -150,6 +152,8 @@ export class AppBuilder {
       const modules = this.project.listFiles(['.js'], workersDir ? [workersDir] : []);
 
       const serviceTemplates = this.createTemplates(app, units, unitJson, wxml.cut);
+      const pageTemplates = this.createTemplates(app, units, unitJson, wxml.full);
+      const pageStyles = createStyles(units, wxss);
       const result: BuildResult = {
         version: ++this.version,
         wxConfig: createWxConfig({
@@ -162,8 +166,9 @@ export class AppBuilder {
         modules,
         serviceTemplates,
         serviceBootstrap: this.createServiceBootstrap(serviceTemplates, units, modules),
-        pageFrame: this.createPageFrame(app, units, unitJson, wxml.full, wxss),
-        pageTemplates: this.createTemplates(app, units, unitJson, wxml.full),
+        pageFrame: `${pageTemplates}\n${pageStyles}`,
+        pageTemplates,
+        pageStyles,
         pages,
         components,
         durationMs: Date.now() - start
@@ -230,26 +235,15 @@ export class AppBuilder {
     }
     return lines.join('\n');
   }
+}
 
-  private createPageFrame(
-    app: AppJson,
-    units: string[],
-    unitJson: Map<string, any>,
-    fullGwx: string,
-    wxss: { comm: string; pages: Record<string, string> }
-  ): string {
-    const lines: string[] = [fullGwx, wxss.comm, `__wxAppCode__["app.json"] = ${toJs(app)};`];
-
-    for (const id of units) {
-      lines.push(`__wxAppCode__[${toJs(id + '.json')}] = ${toJs(unitJson.get(id))};`);
-      if (this.project.exists(id + '.wxml')) {
-        lines.push(`__wxAppCode__[${toJs(id + '.wxml')}] = $gwx(${toJs('./' + id + '.wxml')});`);
-      }
-      const css = wxss.pages[id + '.wxss'];
-      if (css) lines.push(`__wxAppCode__[${toJs(id + '.wxss')}] = ${css};`);
-    }
-    return lines.join('\n');
+function createStyles(units: string[], wxss: { comm: string; pages: Record<string, string> }): string {
+  const lines = [wxss.comm];
+  for (const id of units) {
+    const css = wxss.pages[id + '.wxss'];
+    if (css) lines.push(`__wxAppCode__[${toJs(id + '.wxss')}] = ${css};`);
   }
+  return lines.join('\n');
 }
 
 /** 某个模块执行出错时只影响它自己，其余页面照常注册 */

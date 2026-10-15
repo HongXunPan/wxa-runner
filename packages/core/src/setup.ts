@@ -57,11 +57,13 @@ export interface KnownMocks {
 
 export type MockConfig = Partial<KnownMocks> & Record<string, MockValue>;
 
-/** 被拦截的 wx.request */
+/** 小程序发出的 wx.request */
 export interface MockRequest {
+  /** 完整地址；GET 请求的 data 已由基础库拼进查询参数 */
   url: string;
   /** 大写，如 POST */
   method: string;
+  /** 请求头，基础库已补上默认的 content-type */
   header: Record<string, string>;
   /** 基础库序列化后交给原生层的请求体，通常是 JSON 字符串 */
   data: unknown;

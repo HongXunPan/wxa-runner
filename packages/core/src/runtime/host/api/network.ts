@@ -6,6 +6,7 @@
  * cookie / referer 等请求头。
  */
 
+import type { MockRequest } from '../../../setup';
 import { ApiHandler, fail, ok } from './registry';
 import type { RequestRoutes } from './routes';
 import { saveTempFile, tempFileType } from './tempFiles';
@@ -14,8 +15,37 @@ export interface NetworkApiOptions {
   /** 向逻辑层派发事件 */
   emit: (event: string, data: Record<string, unknown>) => void;
   defaultTimeout: () => number;
-  /** setup 声明的请求拦截，只作用于 wx.request */
+  /** 请求拦截，只作用于 wx.request */
   routes?: RequestRoutes;
+  /** wx.request 发出时调用，早于拦截和转发 */
+  onRequest?: (request: RecordedRequest) => void;
+}
+
+/** 小程序发出的一个 wx.request */
+export interface RecordedRequest extends MockRequest {
+  /** 拦截它的规则（setup 的 network.routes 或测试 API 的 route），经代理发往网络时为 null */
+  routedBy: string | null;
+}
+
+/** 最近发出的 wx.request。平时调试不跑测试时也在记录，只保留最近的 limit 个，内存不会一直增长 */
+export class RequestLog {
+  private items: RecordedRequest[] = [];
+
+  constructor(private readonly limit = 1000) {}
+
+  add(request: RecordedRequest) {
+    this.items.push(request);
+    if (this.items.length > this.limit) this.items.splice(0, this.items.length - this.limit);
+  }
+
+  /** 按发出顺序；返回副本，修改它不影响记录 */
+  list(): RecordedRequest[] {
+    return this.items.map(request => ({ ...request, header: { ...request.header } }));
+  }
+
+  clear() {
+    this.items = [];
+  }
 }
 
 interface ProxyResponse {
@@ -53,13 +83,17 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
   };
 
   const createRequestTask: ApiHandler = (args, { api }) => {
+    const request: MockRequest = { url: args.url, method: (args.method || 'GET').toUpperCase(), header: { ...args.header }, data: args.data };
+    // 发出时就确定是否拦截：记录里能看到命中的规则，之后增删规则不影响已发出的请求
+    const route = options.routes?.match(request);
+    options.onRequest?.({ ...request, header: { ...request.header }, routedBy: route ? route.pattern : null });
+
     const requestTaskId = startTask(args, async (signal, id) => {
       try {
-        const method = (args.method || 'GET').toUpperCase();
-        const mocked = await options.routes?.respond({ url: args.url, method, header: args.header || {}, data: args.data }, signal);
+        const mocked = route && await route.respond(signal);
         const res = mocked
           ? { statusCode: mocked.statusCode, header: mocked.header, cookies: [] as string[], text: async () => mocked.data }
-          : await proxyFetch(args.url, { method, header: args.header, body: args.data, signal })
+          : await proxyFetch(request.url, { method: request.method, header: args.header, body: args.data, signal })
             .then(proxied => ({ ...proxied, text: () => proxied.response.text() }));
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'headersReceived', header: res.header, statusCode: res.statusCode, cookies: res.cookies

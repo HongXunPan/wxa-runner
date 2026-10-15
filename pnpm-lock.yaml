@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@open-wxa/wxa-runner-playwright':
+        specifier: workspace:*
+        version: link:packages/playwright
       '@playwright/test':
         specifier: ^1.64.0
         version: 1.64.0
@@ -125,7 +128,23 @@ importers:
     optionalDependencies:
       '@open-wxa/wxa-baselib':
         specifier: github:open-wxa/wxa-baselib
-        version: git+https://github.com/open-wxa/wxa-baselib.git#2c167c210da78d8b1e8993ea52bfe6836e6853ae
+        version: https://codeload.github.com/open-wxa/wxa-baselib/tar.gz/2c167c210da78d8b1e8993ea52bfe6836e6853ae
+
+  packages/playwright:
+    dependencies:
+      '@open-wxa/wxa-runner-core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.64.0
+        version: 1.64.0
+      tsup:
+        specifier: ^8.0.1
+        version: 8.5.1(postcss@8.5.30)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.3.2
+        version: 5.9.3
 
 packages:
 
@@ -518,8 +537,8 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@open-wxa/wxa-baselib@git+https://github.com/open-wxa/wxa-baselib.git#2c167c210da78d8b1e8993ea52bfe6836e6853ae':
-    resolution: {commit: 2c167c210da78d8b1e8993ea52bfe6836e6853ae, repo: https://github.com/open-wxa/wxa-baselib.git, type: git}
+  '@open-wxa/wxa-baselib@https://codeload.github.com/open-wxa/wxa-baselib/tar.gz/2c167c210da78d8b1e8993ea52bfe6836e6853ae':
+    resolution: {tarball: https://codeload.github.com/open-wxa/wxa-baselib/tar.gz/2c167c210da78d8b1e8993ea52bfe6836e6853ae}
     version: 0.1.0
 
   '@playwright/test@1.64.0':
@@ -2198,7 +2217,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
 
-  '@open-wxa/wxa-baselib@git+https://github.com/open-wxa/wxa-baselib.git#2c167c210da78d8b1e8993ea52bfe6836e6853ae':
+  '@open-wxa/wxa-baselib@https://codeload.github.com/open-wxa/wxa-baselib/tar.gz/2c167c210da78d8b1e8993ea52bfe6836e6853ae':
     optional: true
 
   '@playwright/test@1.64.0':

@@ -76,25 +76,24 @@ export default defineSetup(({ env }) => ({
 
 ### 在 Playwright 中测试
 
-先用 `wxa-runner dev <项目> --no-watch` 启动，再在用例里打开：
+装上 `@open-wxa/wxa-runner-playwright`，每个 worker 自动启动开发服务器：
 
 ```ts
-/// <reference types="@open-wxa/wxa-runner-core/test-api" />
-import { test, expect } from '@playwright/test';
+import { test, expect } from '@open-wxa/wxa-runner-playwright';
 
-test('提交后跳转到结果页', async ({ page }) => {
-  await page.goto('http://localhost:3000/?path=pages/form/form');
-  await page.evaluate(() => window.__wxa_test_api__.ready);
+test('提交后跳转到结果页', async ({ miniProgram }) => {
+  await miniProgram.mock('login', { code: 'test_code' });  // 打开前声明，App.onLaunch 里就生效
+  await miniProgram.open('pages/form/form');
 
-  const current = page.frameLocator('iframe[data-current]');  // 始终指向当前页
-  await current.locator('#submit').click();
+  await miniProgram.current.locator('#submit').click();     // current 始终指向当前页
 
-  await page.evaluate(() => window.__wxa_test_api__.waitForPage('pages/result/result'));
-  await expect(current.locator('.result-title')).toHaveText('提交成功');
+  await expect(miniProgram).toHavePath('pages/result/result');
+  await expect(miniProgram).toHavePageData({ status: 'ok' });
+  expect((await miniProgram.waitForRequest('POST **/api/form')).body).toEqual({ name: '张三' });
 });
 ```
 
-测试 API、类型和注意事项见 [docs/testing.md](./docs/testing.md)。
+配置、`mock` 与请求拦截、不用 fixture 的接法见 [docs/testing.md](./docs/testing.md)。
 
 ## 功能
 

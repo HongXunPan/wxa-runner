@@ -1,5 +1,5 @@
 /**
- * 请求拦截：setup 的 network.routes 声明的接口不发往网络，直接返回给定的响应
+ * 请求拦截：setup 的 network.routes、测试 API 的 route 声明的接口不发往网络，直接返回给定的响应
  *
  * 规则写法：'[METHOD ]URL'，如 'POST https://api.example.com/login'。URL 里 * 匹配一段路径，
  * ** 匹配任意内容（可以不写域名，按路径匹配）；查询参数和 hash 不参与匹配。
@@ -11,9 +11,17 @@ const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'TR
 
 interface Route {
   pattern: string;
-  method: string | null;
-  url: RegExp;
+  matches: RequestMatcher;
   handler: RouteHandler;
+}
+
+type RequestMatcher = (request: Pick<MockRequest, 'url' | 'method'>) => boolean;
+
+export interface MatchedRoute {
+  /** 命中的规则，即添加时的写法 */
+  pattern: string;
+  /** @throws 延迟期间 signal 被 abort 时，抛出 signal.reason */
+  respond(signal?: AbortSignal): Promise<{ statusCode: number; header: Record<string, string>; data: string }>;
 }
 
 export class RequestRoutes {
@@ -24,42 +32,55 @@ export class RequestRoutes {
    * @throws 规则写法不对时
    */
   add(pattern: string, handler: RouteHandler) {
-    const parts = pattern.trim().split(/\s+/);
-    if (parts.length > 2 || (parts.length === 2 && !METHODS.includes(parts[0].toUpperCase()))) {
-      throw new Error(`拦截规则应写成 "[请求方法 ]地址"，如 "POST https://api.example.com/login"、"**/auth/login"`);
-    }
+    const matches = compilePattern(pattern);
     if (typeof handler !== 'function' && (handler === null || typeof handler !== 'object')) {
       throw new Error('拦截规则的值需要是响应对象 { status?, header?, body?, delay? }，或按请求返回响应的函数');
     }
     if (typeof handler === 'object') checkDelay(handler.delay);
-    const [method, url] = parts.length === 2 ? [parts[0].toUpperCase(), parts[1]] : [null, parts[0]];
-    this.routes.unshift({ pattern, method, url: globToRegExp(url), handler });
+    this.routes.unshift({ pattern, matches, handler });
   }
 
-  /**
-   * 找到匹配的规则时返回它的响应，否则返回 undefined
-   * @throws 延迟期间 signal 被 abort 时，抛出 signal.reason
-   */
-  async respond(
-    request: MockRequest,
-    signal?: AbortSignal
-  ): Promise<{ statusCode: number; header: Record<string, string>; data: string } | undefined> {
-    const url = request.url.replace(/[?#].*$/, '');
-    const route = this.routes.find(r => (!r.method || r.method === request.method) && r.url.test(url));
+  /** 删除按这个写法添加的规则，不传时删除全部 */
+  remove(pattern?: string) {
+    this.routes = pattern === undefined ? [] : this.routes.filter(route => route.pattern !== pattern);
+  }
+
+  /** 找到匹配的规则，没有时返回 undefined。响应在调用 respond 时才生成 */
+  match(request: MockRequest): MatchedRoute | undefined {
+    const route = this.routes.find(r => r.matches(request));
     if (!route) return undefined;
 
-    console.info(`[wxa-runner] 拦截请求 ${request.method} ${request.url}（${route.pattern}）`);
-    const response: MockResponse = typeof route.handler === 'function' ? (await route.handler(request)) || {} : route.handler;
-    checkDelay(response.delay);
-    if (response.delay) await sleep(response.delay, signal);
-    const { body } = response;
-    const isText = typeof body === 'string' || body === undefined;
     return {
-      statusCode: response.status ?? 200,
-      header: { ...(isText ? {} : { 'Content-Type': 'application/json' }), ...response.header },
-      data: body === undefined ? '' : isText ? (body as string) : JSON.stringify(body)
+      pattern: route.pattern,
+      async respond(signal) {
+        console.info(`[wxa-runner] 拦截请求 ${request.method} ${request.url}（${route.pattern}）`);
+        const response: MockResponse = typeof route.handler === 'function' ? (await route.handler(request)) || {} : route.handler;
+        checkDelay(response.delay);
+        if (response.delay) await sleep(response.delay, signal);
+        const { body } = response;
+        const isText = typeof body === 'string' || body === undefined;
+        return {
+          statusCode: response.status ?? 200,
+          header: { ...(isText ? {} : { 'Content-Type': 'application/json' }), ...response.header },
+          data: body === undefined ? '' : isText ? (body as string) : JSON.stringify(body)
+        };
+      }
     };
   }
+}
+
+/**
+ * 把 '[METHOD ]URL' 规则编译成匹配函数，查询参数和 hash 不参与匹配
+ * @throws 规则写法不对时
+ */
+export function compilePattern(pattern: string): RequestMatcher {
+  const parts = pattern.trim().split(/\s+/);
+  if (parts.length > 2 || (parts.length === 2 && !METHODS.includes(parts[0].toUpperCase()))) {
+    throw new Error(`拦截规则应写成 "[请求方法 ]地址"，如 "POST https://api.example.com/login"、"**/auth/login"`);
+  }
+  const [method, url] = parts.length === 2 ? [parts[0].toUpperCase(), parts[1]] : [null, parts[0]];
+  const regexp = globToRegExp(url);
+  return request => (!method || method === request.method) && regexp.test(String(request.url).replace(/[?#].*$/, ''));
 }
 
 function checkDelay(delay: unknown) {

@@ -76,25 +76,24 @@ See [docs/hot-reload.md](./docs/hot-reload.md) (in Chinese).
 
 ### Testing with Playwright
 
-Start the server with `wxa-runner dev <project> --no-watch`, then open it from a test:
+Install `@open-wxa/wxa-runner-playwright`; each worker starts its own dev server:
 
 ```ts
-/// <reference types="@open-wxa/wxa-runner-core/test-api" />
-import { test, expect } from '@playwright/test';
+import { test, expect } from '@open-wxa/wxa-runner-playwright';
 
-test('navigates to the result page after submitting', async ({ page }) => {
-  await page.goto('http://localhost:3000/?path=pages/form/form');
-  await page.evaluate(() => window.__wxa_test_api__.ready);
+test('navigates to the result page after submitting', async ({ miniProgram }) => {
+  await miniProgram.mock('login', { code: 'test_code' });  // declared before opening: already applies in App.onLaunch
+  await miniProgram.open('pages/form/form');
 
-  const current = page.frameLocator('iframe[data-current]');  // always the current page
-  await current.locator('#submit').click();
+  await miniProgram.current.locator('#submit').click();     // current always points to the current page
 
-  await page.evaluate(() => window.__wxa_test_api__.waitForPage('pages/result/result'));
-  await expect(current.locator('.result-title')).toHaveText('Submitted');
+  await expect(miniProgram).toHavePath('pages/result/result');
+  await expect(miniProgram).toHavePageData({ status: 'ok' });
+  expect((await miniProgram.waitForRequest('POST **/api/form')).body).toEqual({ name: 'Ann' });
 });
 ```
 
-See [docs/testing.md](./docs/testing.md) (in Chinese) for the test API, types and caveats.
+See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking and request interception, and using the test API without the fixture.
 
 ## Features
 

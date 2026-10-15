@@ -31,6 +31,9 @@ export class ApiRegistry {
   private mocks = new Map<string, ApiHandler>();
   private warned = new Set<string>();
 
+  /** @param onUnimplemented 调用了没有实现、也没有 mock 的 API 时触发，每个 API 一次；基础库内部的上报类接口不触发 */
+  constructor(private readonly onUnimplemented?: (context: ApiContext) => void) {}
+
   register(handlers: Record<string, ApiHandler>) {
     for (const [name, handler] of Object.entries(handlers)) {
       this.handlers.set(name, handler);
@@ -58,6 +61,7 @@ export class ApiRegistry {
       if (!SILENT_APIS.has(api) && !this.warned.has(api)) {
         this.warned.add(api);
         console.warn(`[wxa-runner] wx.${api} 尚未实现，返回默认成功`, args);
+        this.onUnimplemented?.(context);
       }
       return { errMsg: `${api}:ok` };
     }

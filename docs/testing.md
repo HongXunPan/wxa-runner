@@ -22,7 +22,7 @@ test('提交后跳转到结果页', async ({ page }) => {
   await expect(current.locator('.result-title')).toHaveText('提交成功');
 });
 
-// 逻辑层、渲染层的运行时错误不会让测试失败，建议统一检查
+// 运行时错误、调用了未实现的原生 API 都不会让测试失败，建议统一检查
 test.afterEach(async ({ page }) => {
   expect(await page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([]);
 });
@@ -42,13 +42,12 @@ test.afterEach(async ({ page }) => {
 | `mock(api, impl)` / `unmock(api?)` | 覆盖原生 API：对象作为返回结果，函数按调用参数返回；`unmock()` 不传参数时清除全部 |
 | `navigateTo` / `navigateBack` / `redirectTo` / `reLaunch` / `switchTab` | 直接跳转页面 |
 | `getStorage(key)` / `clearStorage()` | 读取、清空小程序的 Storage |
-| `errors()` | 逻辑层、渲染层收集到的运行时错误 |
+| `errors()` | 逻辑层、渲染层的运行时错误，以及调用过的未实现原生 API（`api` 为 API 名称，每个 API 记一次） |
 
 ## 注意事项
 
 - 跳转后如果新旧页面有同一个选择器，先用 `waitForPage` 等跳转完成，避免断言落在上一个页面上
-- 没有实现的原生 API 会返回成功，只在控制台警告一次，`errors()` 里看不到（[#2](https://github.com/open-wxa/wxa-runner/issues/2)）。
-  用到的原生 API 请先确认已支持，或者 mock 掉
+- 没有实现的原生 API 仍返回成功，以免打断业务代码，但会在 `errors()` 里记一条。用到的请 mock 掉，mock 过的不再记录
 - `wx.request` 不能 mock，要在 setup 里用 `network.routes` 拦截，见 [setup.md](./setup.md#拦截请求)
 
 ## 类型

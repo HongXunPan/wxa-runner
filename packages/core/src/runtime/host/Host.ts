@@ -31,6 +31,8 @@ export interface FrameError {
   webviewId: number;
   message: string;
   stack?: string;
+  /** 调用了未实现的原生 API 时为 API 名称 */
+  api?: string;
 }
 
 const ROUTE_DONE_DELAY = 300;
@@ -38,7 +40,9 @@ const PAGE_LOAD_TIMEOUT = 15000;
 
 export class Host implements HostApi {
   readonly device;
-  readonly api = new ApiRegistry();
+  readonly api = new ApiRegistry(({ api, from, webviewId }) =>
+    this.errors.push({ kind: from, webviewId, api, message: `wx.${api} 尚未实现，返回了默认成功，可以用 mock 覆盖` })
+  );
   readonly shell: PhoneShell;
   readonly errors: FrameError[] = [];
   readonly storage: MiniProgramStorage;

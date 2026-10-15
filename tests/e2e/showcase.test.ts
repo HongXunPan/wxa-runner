@@ -153,6 +153,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
     try {
       await small.addInitScript(() => localStorage.setItem('wxa-runner:scale', 'fit'));
       await small.goto(base + '/');
+      await small.waitForFunction(() => window.__wxa_test_api__);
       await small.evaluate(() => window.__wxa_test_api__.ready);
 
       const device = (await small.locator('.wxa-device').boundingBox())!;
@@ -185,6 +186,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
     try {
       const tab = await plain.newPage();
       await tab.goto(base + '/?path=pages/detail/detail&id=1');
+      await tab.waitForFunction(() => window.__wxa_test_api__);
       await tab.evaluate(() => window.__wxa_test_api__.ready);
       const widths = await tab.frameLocator('iframe[data-current]').locator('body').evaluate(body => {
         // 自定义滚动条在任何系统上都会占宽度，用它模拟接鼠标时的常规滚动条

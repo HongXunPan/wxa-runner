@@ -1,0 +1,9 @@
+<view id="count">{{count}}</view>
+<view id="code">{{code}}</view>
+<view id="visits">{{visits}}</view>
+<view id="location">{{location}}</view>
+<view id="order">{{order}}</view>
+<button id="add" bindtap="onAdd">加一</button>
+<button id="detail" bindtap="onDetail">详情</button>
+<button id="locate" bindtap="onLocate">定位</button>
+<button id="order-btn" bindtap="onOrder">下单</button>

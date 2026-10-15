@@ -1,7 +1,7 @@
 /**
  * 端到端：业务代码调用了运行时没有实现的 wx API，测试能从 errors() 发现
  *
- * 未实现的 API 为了不打断业务代码仍返回成功，但业务往往依赖真实结果（如 chooseImage 的 tempFilePaths），
+ * 未实现的 API 为了不打断业务代码仍返回成功，但业务往往依赖真实结果（如 chooseInvoiceTitle 的抬头），
  * 光返回 ok 会让测试「假通过」。基础库自己也会调用一些没有实现的原生接口，这些不是业务的问题，不能记。
  */
 
@@ -12,13 +12,13 @@ import { e2eReady, expectText, Runner, startRunner } from './runner';
 // addPhoneContact 在浏览器里做不到，运行时不会实现
 const PAGE_JS = `
 Page({
-  data: { contact: '', image: '' },
+  data: { contact: '', invoice: '' },
   onLoad() {
     wx.addPhoneContact({ firstName: '张三' });
     wx.addPhoneContact({ firstName: '李四', complete: res => this.setData({ contact: res.errMsg }) });
   },
-  onChoose() {
-    wx.chooseImage({ success: res => this.setData({ image: res.tempFilePaths[0] }) });
+  onChooseInvoice() {
+    wx.chooseInvoiceTitle({ success: res => this.setData({ invoice: res.title }) });
   }
 });
 `;
@@ -30,7 +30,7 @@ describe.skipIf(!e2eReady)('未实现的 wx API', () => {
     runner = await startRunner({
       'app.json': { pages: ['pages/index/index'] },
       'pages/index/index.json': {},
-      'pages/index/index.wxml': '<view id="contact">{{contact}}</view><button id="choose" bindtap="onChoose">选图</button><view id="image">{{image}}</view>',
+      'pages/index/index.wxml': '<view id="contact">{{contact}}</view><button id="invoice" bindtap="onChooseInvoice">选发票抬头</button><view id="invoice-title">{{invoice}}</view>',
       'pages/index/index.js': PAGE_JS
     });
   });
@@ -51,11 +51,11 @@ describe.skipIf(!e2eReady)('未实现的 wx API', () => {
 
   it('测试 mock 过的未实现 API 不记入 errors()', async () => {
     const frame = await runner.open('/');
-    await runner.page.evaluate(() => window.__wxa_test_api__.mock('chooseImage', { tempFilePaths: ['wxfile://mock.png'] }));
+    await runner.page.evaluate(() => window.__wxa_test_api__.mock('chooseInvoiceTitle', { type: 0, title: '测试公司' }));
 
-    await frame.click('#choose');
+    await frame.click('#invoice');
 
-    await expectText(frame, '#image', 'wxfile://mock.png');
+    await expectText(frame, '#invoice-title', '测试公司');
     const errors = await runner.page.evaluate(() => window.__wxa_test_api__.errors());
     expect(errors.map(error => error.api)).toEqual(['addPhoneContact']);
   });

@@ -6,6 +6,7 @@
  */
 
 import { ApiHandler, fail, ok } from './registry';
+import { saveTempFile } from './tempFiles';
 
 const DIR_MODE = 0o40755;
 const FILE_MODE = 0o100644;
@@ -132,15 +133,10 @@ export function createMiscApis(appid: string, options?: { realLogin?: boolean })
   return {
     ...fileApis,
 
-    // canvas 导出图片、拍照、录像的结果都经过这里。文件存在开发服务器上，
-    // 返回的是 http 地址：image、video 组件只原样使用 http(s) 地址
-    base64ToTempFilePath: async (args, { api }) => {
-      const type = String(args.fileType || 'png');
+    // canvas 导出图片、拍照、录像的结果都经过这里
+    base64ToTempFilePath: async args => {
       const bytes = Uint8Array.from(atob(String(args.base64Data || '')), char => char.charCodeAt(0));
-      const res = await fetch(`/__wxa__/tmp?type=${encodeURIComponent(type)}`, { method: 'POST', body: bytes });
-      if (!res.ok) return fail(api, await res.text());
-      const { url } = await res.json();
-      return ok(api, { tempFilePath: url });
+      return { tempFilePath: await saveTempFile(bytes, String(args.fileType || 'png')) };
     },
 
     // 基础库经这里向后台拉各种配置。业务域名列表（webapi_getwxanetwork）要明确失败：

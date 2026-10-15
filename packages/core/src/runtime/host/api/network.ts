@@ -8,6 +8,7 @@
 
 import { ApiHandler, fail, ok } from './registry';
 import type { RequestRoutes } from './routes';
+import { saveTempFile, tempFileType } from './tempFiles';
 
 export interface NetworkApiOptions {
   /** 向逻辑层派发事件 */
@@ -83,10 +84,13 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
         emit('onDownloadTaskStateChange', {
           downloadTaskId: id, state: 'progressUpdate', progress: 100, totalBytesWritten: blob.size, totalBytesExpectedToWrite: blob.size
         });
+        // 不用 blob: 地址：image 组件会把它当成页面相对路径
+        const fileName = new URL(args.url).pathname.split('/').pop() || '';
+        const tempFilePath = await saveTempFile(blob, tempFileType(fileName, blob.type, 'tmp'));
         emit('onDownloadTaskStateChange', {
           downloadTaskId: id,
           state: 'success',
-          tempFilePath: URL.createObjectURL(blob),
+          tempFilePath,
           statusCode: res.statusCode,
           header: res.header,
           profile: {}

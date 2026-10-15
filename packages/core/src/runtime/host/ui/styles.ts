@@ -70,6 +70,12 @@ html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50
 .wxa-picker-item { height: ${PICKER_ITEM_HEIGHT}px; line-height: ${PICKER_ITEM_HEIGHT}px; padding: 0 4px; overflow: hidden; font-size: 17px; color: rgba(0,0,0,.4); text-align: center; white-space: nowrap; text-overflow: ellipsis; scroll-snap-align: center; cursor: pointer; }
 .wxa-picker-item.is-selected { color: rgba(0,0,0,.9); }
 .wxa-picker-indicator { position: absolute; left: 0; right: 0; top: ${PICKER_ITEM_HEIGHT * 2}px; height: ${PICKER_ITEM_HEIGHT}px; border-radius: 8px; background: rgba(0,0,0,.05); pointer-events: none; }
+.wxa-preview { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; pointer-events: auto; }
+.wxa-preview-image { max-width: 100%; max-height: 100%; object-fit: contain; }
+.wxa-preview-position { position: absolute; top: 60px; left: 0; right: 0; color: #fff; font-size: 15px; text-align: center; pointer-events: none; }
+.wxa-preview button { position: absolute; top: 50%; width: 40px; height: 56px; margin-top: -28px; border: 0; border-radius: 8px; background: rgba(255,255,255,.15); color: #fff; font-size: 28px; cursor: pointer; }
+.wxa-preview .wxa-preview-prev { left: 8px; }
+.wxa-preview .wxa-preview-next { right: 8px; }
 .wxa-error { position: absolute; inset: 0; z-index: 20; overflow: auto; padding: 20px; background: #fff5f5; color: #c00; font: 12px/1.6 Menlo, monospace; white-space: pre-wrap; }
 .wxa-toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-radius: 999px; background: rgba(255,255,255,.7); box-shadow: 0 1px 2px rgba(15,23,42,.08); font-size: 12px; color: #555; }
 .wxa-toolbar button { border: 0; background: #111214; color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }

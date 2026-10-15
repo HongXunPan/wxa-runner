@@ -42,12 +42,13 @@ test.afterEach(async ({ page }) => {
 | `mock(api, impl)` / `unmock(api?)` | 覆盖原生 API：对象作为返回结果，函数按调用参数返回；`unmock()` 不传参数时清除全部 |
 | `navigateTo` / `navigateBack` / `redirectTo` / `reLaunch` / `switchTab` | 直接跳转页面 |
 | `getStorage(key)` / `clearStorage()` | 读取、清空小程序的 Storage |
-| `errors()` | 逻辑层、渲染层的运行时错误，以及调用过的未实现原生 API（`api` 为 API 名称，每个 API 记一次） |
+| `errors()` | 逻辑层、渲染层的运行时错误，以及业务代码调用过的未实现 wx API（`api` 为 API 名称，每个 API 记一次） |
 
 ## 注意事项
 
 - 跳转后如果新旧页面有同一个选择器，先用 `waitForPage` 等跳转完成，避免断言落在上一个页面上
-- 没有实现的原生 API 仍返回成功，以免打断业务代码，但会在 `errors()` 里记一条。用到的请 mock 掉，mock 过的不再记录
+- 没有实现的 wx API 仍返回成功，以免打断业务代码，但会在 `errors()` 里记一条；基础库内部调用的原生接口不记。
+  用到的请 mock 掉。`onLaunch`、首页 `onLoad` 这类启动阶段就调用的，等 `ready` 后再 mock 已经晚了，要在 [setup](./setup.md) 里 mock
 - `wx.request` 不能 mock，要在 setup 里用 `network.routes` 拦截，见 [setup.md](./setup.md#拦截请求)
 
 ## 类型

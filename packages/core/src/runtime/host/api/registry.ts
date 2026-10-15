@@ -31,7 +31,7 @@ export class ApiRegistry {
   private mocks = new Map<string, ApiHandler>();
   private warned = new Set<string>();
 
-  /** @param onUnimplemented 调用了没有实现、也没有 mock 的 API 时触发，每个 API 一次；基础库内部的上报类接口不触发 */
+  /** @param onUnimplemented 调用了没有实现、也没有 mock 的 API 时触发，每次调用都触发；基础库内部的上报类接口不触发 */
   constructor(private readonly onUnimplemented?: (context: ApiContext) => void) {}
 
   register(handlers: Record<string, ApiHandler>) {
@@ -58,10 +58,12 @@ export class ApiRegistry {
     const handler = this.mocks.get(api) || this.handlers.get(api);
 
     if (!handler) {
-      if (!SILENT_APIS.has(api) && !this.warned.has(api)) {
-        this.warned.add(api);
-        console.warn(`[wxa-runner] wx.${api} 尚未实现，返回默认成功`, args);
+      if (!SILENT_APIS.has(api)) {
         this.onUnimplemented?.(context);
+        if (!this.warned.has(api)) {
+          this.warned.add(api);
+          console.warn(`[wxa-runner] wx.${api} 尚未实现，返回默认成功`, args);
+        }
       }
       return { errMsg: `${api}:ok` };
     }

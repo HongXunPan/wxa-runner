@@ -8,7 +8,7 @@
 import type { FileChooserOptions } from '../ui/fileChooser';
 import type { ActionSheetOptions } from '../ui/PhoneShell';
 import { ApiHandler, fail, ok } from './registry';
-import { saveTempFile } from './tempFiles';
+import { saveTempFile, tempFileType } from './tempFiles';
 
 export interface MediaApiOptions {
   /** @returns 用户点的下标，取消时为 null */
@@ -50,7 +50,7 @@ export function createMediaApis(
     return files && files.slice(0, count);
   }
 
-  const saveAll = (files: File[]) => Promise.all(files.map(file => saveTempFile(file, extensionOf(file))));
+  const saveAll = (files: File[]) => Promise.all(files.map(file => saveTempFile(file, tempFileType(file.name, file.type, 'jpg'))));
 
   return {
     chooseImage: async (args, { api }) => {
@@ -109,13 +109,6 @@ async function fetchFile(path: string): Promise<Blob> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`file not exist ${path}`);
   return res.blob();
-}
-
-/** 临时文件的扩展名，决定读取时的 Content-Type：优先用原文件名的 */
-function extensionOf(file: File): string {
-  const fromName = /\.([a-z\d]+)$/i.exec(file.name)?.[1];
-  const fromType = /^image\/([a-z\d]+)$/i.exec(file.type)?.[1];
-  return (fromName || fromType || 'jpg').toLowerCase();
 }
 
 /** 与真机一致的格式名：png、jpeg、gif 等，看不出来时为 unknown */

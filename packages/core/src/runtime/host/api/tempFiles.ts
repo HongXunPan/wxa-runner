@@ -1,5 +1,5 @@
 /**
- * 临时文件：canvas 导出、拍照、选图的结果都存在开发服务器上
+ * 临时文件：canvas 导出、拍照、选图、下载的结果都存在开发服务器上
  *
  * 返回的是 http 地址：image、video 组件只原样使用 http(s) 地址，其余的会被当成页面相对路径；
  * uploadFile 也能直接读取。
@@ -14,4 +14,11 @@ export async function saveTempFile(data: BodyInit, type: string): Promise<string
   if (!res.ok) throw new Error(await res.text());
   const { url } = await res.json();
   return url;
+}
+
+/** 临时文件的扩展名：优先用原文件名的，其次按 MIME 类型（如 image/png），都看不出来时用 fallback */
+export function tempFileType(name: string, mimeType: string, fallback: string): string {
+  const fromName = /\.([a-z\d]+)$/i.exec(name)?.[1];
+  const fromType = /^[a-z]+\/([a-z\d]+)\s*(;|$)/i.exec(mimeType)?.[1];
+  return (fromName || fromType || fallback).toLowerCase();
 }

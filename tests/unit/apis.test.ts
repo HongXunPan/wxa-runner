@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
 import { createNetworkApis } from '../../packages/core/src/runtime/host/api/network';
-import { ApiHandler } from '../../packages/core/src/runtime/host/api/registry';
+import { ApiHandler, ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
 import { createSystemApis } from '../../packages/core/src/runtime/host/api/system';
 import { createUiApis } from '../../packages/core/src/runtime/host/api/ui';
 import type { PhoneShell } from '../../packages/core/src/runtime/host/ui/PhoneShell';
@@ -183,7 +183,53 @@ describe('其它 API', () => {
 
   it('开放接口返回可预测的模拟数据，支付明确失败', () => {
     expect(call(apis, 'login').code).toMatch(/^wxa_mock_code_/);
+    expect(phoneCodeSeenByBaseLib(call(apis, 'getPhoneNumber'))).toMatch(/^mock_phone_code_/);
     expect(call(apis, 'getAccountInfoSync').miniProgram.appId).toBe('wx1');
     expect(call(apis, 'requestPayment').errMsg).toMatch(/^requestPayment:fail /);
+  });
+});
+
+/** 基础库（WAWebview 的 getPhoneNumber）只从 JSON.parse(data) 里取 code，顶层的 code 会被丢掉 */
+function phoneCodeSeenByBaseLib(result: { data?: string }): string | undefined {
+  return result.data ? JSON.parse(result.data).code : undefined;
+}
+
+describe('真实登录（--real-login）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function invoke(api: string, response: Response) {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => response);
+    vi.stubGlobal('fetch', fetchMock);
+    const registry = new ApiRegistry();
+    registry.register(createMiscApis('wx1', { realLogin: true }));
+    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }), fetchMock };
+  }
+
+  const json = (body: object, status = 200) => new Response(JSON.stringify(body), { status });
+
+  it('wx.login 返回开发服务器向微信换来的 code', async () => {
+    const { result, fetchMock } = invoke('login', json({ code: 'real-code' }));
+    expect(await result).toEqual({ code: 'real-code', errMsg: 'login:ok' });
+    expect(fetchMock).toHaveBeenCalledWith('/__wxa__/api/login', { method: 'POST' });
+  });
+
+  it('getPhoneNumber 的 code 能被基础库取到', async () => {
+    const data = JSON.stringify({ data: '{"mobile":"138****1997"}', encryptedData: 'enc', iv: 'iv', code: 'phone-code' });
+    const { result } = invoke('getPhoneNumber', json({ data, encryptedData: 'enc', iv: 'iv' }));
+    const phone = await result;
+    expect(phone).toMatchObject({ encryptedData: 'enc', iv: 'iv', errMsg: 'getPhoneNumber:ok' });
+    expect(phoneCodeSeenByBaseLib(phone)).toBe('phone-code');
+  });
+
+  it('开发服务器给出的失败原因原样作为 fail 消息，不退回模拟数据', async () => {
+    const { result } = invoke('login', json({ error: '微信开发者工具的登录态已过期' }, 500));
+    expect(await result).toEqual({ errMsg: 'login:fail 微信开发者工具的登录态已过期' });
+  });
+
+  it('响应不是 JSON 时（如代理返回的错误页）fail 消息带上状态码', async () => {
+    const { result } = invoke('getPhoneNumber', new Response('<!DOCTYPE html>', { status: 502 }));
+    expect(await result).toEqual({ errMsg: 'getPhoneNumber:fail 开发服务器返回 HTTP 502' });
   });
 });

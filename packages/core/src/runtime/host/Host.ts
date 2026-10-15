@@ -414,7 +414,7 @@ export class Host implements HostApi {
         documentOf: webviewId => this.pages.get(webviewId)?.win?.document,
         emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data)
       }),
-      ...createMiscApis(this.info.appid)
+      ...createMiscApis(this.info.appid, { realLogin: this.info.realLogin })
     });
   }
 }

@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   compareVersions,
   extractBaseLib,
+  listBaseLibs,
   listInstalledBaseLibs,
+  resolveBaseLib,
   selectBaseLib
 } from '../../packages/extractor/src/baselib';
-import { findRegionDataFile } from '../../packages/extractor/src/devtools';
+import { findDeveloperTicket, findRegionDataFile, TICKET_ENV } from '../../packages/extractor/src/devtools';
 import { readWxvpkgFile, readWxvpkgIndex } from '../../packages/extractor/src/wxvpkg';
 import { createProject, packWxvpkg } from '../helpers';
 
@@ -52,17 +54,63 @@ describe('基础库版本选择', () => {
     expect(selectBaseLib(installed, '3.10.1').compatible).toBe(false);
   });
 
-  it('指定的版本未安装时给出已安装列表', () => {
-    expect(() => selectBaseLib(installed, '9.9.9')).toThrow(/已安装：3\.10\.1, 3\.7\.0/);
+  it('指定的版本未安装时给出可用的版本', () => {
+    expect(() => selectBaseLib(installed, '9.9.9')).toThrow(/可用的版本：3\.10\.1, 3\.7\.0/);
   });
 
   it('没有任何兼容版本时提示下载', () => {
     expect(() => selectBaseLib(installed.filter(lib => !lib.compatible))).toThrow('请在开发者工具中下载');
   });
 
+  it('开发者工具和内置基础库都没有时，提示两种获取方式', () => {
+    expect(() => selectBaseLib([])).toThrow(/微信开发者工具.*@open-wxa\/wxa-baselib/);
+  });
+
   it('版本号逐段按数字比较', () => {
     expect(compareVersions('3.10.0', '3.9.9')).toBeGreaterThan(0);
     expect(compareVersions('3.7', '3.7.0')).toBe(0);
+  });
+});
+
+describe('内置基础库兜底', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** 开发者工具的 WeappVendor 目录，选择版本只看文件名，内容留空 */
+  const vendorWith = (...versions: string[]) => createProject(Object.fromEntries(versions.map(v => [`${v}.wxvpkg`, ''])));
+  const bundledRoot = createProject({ '3.7.0/WAService.js': 'bundled', '3.7.0/WAWebview.js': 'bundled' });
+
+  it('没装开发者工具时使用内置的 3.7.0', () => {
+    expect(selectBaseLib(listBaseLibs([], bundledRoot))).toMatchObject({ version: '3.7.0', source: 'bundled' });
+  });
+
+  it('开发者工具有同一版本时使用开发者工具的，同一版本只列出一次', () => {
+    const libs = listBaseLibs([vendorWith('3.7.0', '3.5.8')], bundledRoot);
+    expect(libs.map(lib => `${lib.version} ${lib.source}`)).toEqual(['3.7.0 devtools', '3.5.8 devtools']);
+    expect(selectBaseLib(libs).source).toBe('devtools');
+  });
+
+  it('开发者工具只有更旧的版本时，默认仍使用内置的 3.7.0；指定旧版本时使用开发者工具的', () => {
+    const libs = listBaseLibs([vendorWith('3.5.8')], bundledRoot);
+    expect(selectBaseLib(libs)).toMatchObject({ version: '3.7.0', source: 'bundled' });
+    expect(selectBaseLib(libs, '3.5.8')).toMatchObject({ version: '3.5.8', source: 'devtools' });
+  });
+
+  it('开发者工具只有高于 3.7.0 的版本时，使用内置的 3.7.0 而不是报错', () => {
+    expect(selectBaseLib(listBaseLibs([vendorWith('3.10.1')], bundledRoot))).toMatchObject({ version: '3.7.0', source: 'bundled' });
+  });
+
+  it('指定的版本哪里都没有时，列出可用的版本并标出内置的', () => {
+    expect(() => selectBaseLib(listBaseLibs([vendorWith('3.10.1')], bundledRoot), '9.9.9')).toThrow(/可用的版本：3\.10\.1, 3\.7\.0（内置）/);
+  });
+
+  it('没装开发者工具的机器上，解析出内置的 3.7.0，运行时要加载的文件都在', () => {
+    vi.stubEnv('WXA_VENDOR_DIR', createProject({}));
+    const lib = resolveBaseLib();
+    expect(lib).toMatchObject({ version: '3.7.0', source: 'bundled', compatible: true });
+    expect(fs.existsSync(path.join(lib.dir, 'WAService.js'))).toBe(true);
+    expect(fs.existsSync(path.join(lib.dir, 'WAWebview.js'))).toBe(true);
   });
 });
 
@@ -104,5 +152,53 @@ describe('行政区划数据', () => {
     vi.stubEnv('WXA_DEVTOOLS_PATH', devtools);
     expect(findRegionDataFile('districts')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict_third'));
     expect(findRegionDataFile('streets')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict'));
+  });
+});
+
+describe('开发者工具登录态', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const HOUR = 3600_000;
+
+  /** 一个账号的用户数据目录：登录信息按 localStorage 存放，hash_key_map_2.json 记录文件 hash 对应的 key */
+  const profile = (user: object | string) => createProject({
+    'WeappLocalData/hash_key_map_2.json': { f00: 'reduxPersist:project', a1b2: 'reduxPersist:user' },
+    'WeappLocalData/localstorage_a1b2.json': user
+  });
+
+  it('取当前用户的 ticket 和过期时间，不和顶层的旧字段混用', () => {
+    const expiredAt = Date.now() + HOUR;
+    const dir = profile({
+      newticket: 'stale', ticketExpiredTime: Date.now() + 9 * HOUR,
+      currentUser: { newticket: 'current', ticketExpiredTime: expiredAt, loginStatus: 'SUCCESS' }
+    });
+    expect(findDeveloperTicket([dir])).toEqual({ newticket: 'current', expiredAt });
+  });
+
+  it('多个账号都登录过时取过期时间最晚的；全部过期也返回，由调用方提示刷新', () => {
+    const user = (newticket: string, ticketExpiredTime: number) => profile({ currentUser: { newticket, ticketExpiredTime, loginStatus: 'SUCCESS' } });
+    const expired = Date.now() - HOUR;
+    expect(findDeveloperTicket([user('a', Date.now() + HOUR), user('b', Date.now() + 2 * HOUR)])?.newticket).toBe('b');
+    expect(findDeveloperTicket([user('c', expired - HOUR), user('d', expired)])).toEqual({ newticket: 'd', expiredAt: expired });
+  });
+
+  it('没有登录成功的账号、没有登录数据的目录当作未登录', () => {
+    const loggedOut = profile({ currentUser: { newticket: 't', ticketExpiredTime: Date.now() + HOUR, loginStatus: 'LOGOUT' } });
+    expect(findDeveloperTicket([loggedOut, createProject({ 'WeappVendor/x': '' })])).toBeNull();
+  });
+
+  it('登录数据读不了时报出所在目录，而不是当作未登录；其它账号可用时仍然用它', () => {
+    const broken = profile('{"currentUser":');
+    expect(() => findDeveloperTicket([broken])).toThrow(`读取开发者工具登录态失败（${broken}: `);
+    const ok = profile({ currentUser: { newticket: 'ok', ticketExpiredTime: Date.now() + HOUR, loginStatus: 'SUCCESS' } });
+    expect(findDeveloperTicket([broken, ok])?.newticket).toBe('ok');
+  });
+
+  it(`环境变量 ${TICKET_ENV} 优先于开发者工具的登录态`, () => {
+    vi.stubEnv(TICKET_ENV, 'from-env');
+    const dir = profile({ currentUser: { newticket: 'devtools', ticketExpiredTime: Date.now() + HOUR, loginStatus: 'SUCCESS' } });
+    expect(findDeveloperTicket([dir])).toEqual({ newticket: 'from-env' });
   });
 });

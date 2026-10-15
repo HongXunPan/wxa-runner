@@ -57,7 +57,7 @@ H5 上通过的测试，不代表小程序上没有问题。
 └── 渲染层 iframe × N   官方 WAWebview.js + wcc / wcsc 编译出的模板和样式（每个页面一个）
 ```
 
-- 基础库和编译器从你本机安装的微信开发者工具中读取，**不随本项目分发**
+- 基础库和编译器优先从本机开发者工具读取；没有开发者工具时（如 Linux、CI），使用随依赖安装的内置基础库和微信官方 npm 包 [miniprogram-compiler](https://www.npmjs.com/package/miniprogram-compiler) 自带的编译器
 - 逻辑层与渲染层之间的通信、`onAppRoute` 等原生事件，由 wxa-runner 按基础库期望的 `WeixinJSBridge` 接口实现
 - 网络请求经开发服务器转发，没有 CORS 限制，可以携带 cookie 等请求头
 
@@ -68,9 +68,7 @@ H5 上通过的测试，不代表小程序上没有问题。
 **前置条件**
 
 - Node.js ≥ 18、pnpm ≥ 8
-- 安装[微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)并至少打开过一次（用于下载基础库）
-- 基础库版本 **≤ 3.7.0**（已验证 2.32.3、3.3.4、3.5.8、3.7.0）。不指定时自动选择本机已下载的最新兼容版本；
-  可以在开发者工具「详情 → 本地设置 → 调试基础库」中下载其他版本
+- 基础库版本 **≤ 3.7.0**（已验证 2.32.3、3.3.4、3.5.8、3.7.0）。优先使用本机微信开发者工具下载的版本；开发者工具里没有时（如 Linux、CI），使用随依赖安装的内置基础库 3.7.0（[wxa-baselib](https://github.com/open-wxa/wxa-baselib)）。其他版本可以在开发者工具「详情 → 本地设置 → 调试基础库」中下载
 
 ```bash
 git clone https://github.com/open-wxa/wxa-runner.git
@@ -97,8 +95,8 @@ wxa-runner dev <project-path>
   --no-watch                不监听文件变化
   -o, --open                启动后打开浏览器
 
-wxa-runner baselib list     列出本机已下载的基础库及兼容性
-wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会自动执行）
+wxa-runner baselib list     列出可用的基础库（本机已下载的和内置的）及兼容性
+wxa-runner baselib extract  解包基础库到 ~/.wxa-runner/baselib（dev 会自动执行；内置基础库无需解包）
 ```
 
 `http://localhost:3000/?path=pages/detail/detail&id=1` 可以直接打开指定页面并带上参数。
@@ -235,8 +233,8 @@ test.afterEach(async ({ page }) => {
 
 ```
 packages/
-  extractor/   @open-wxa/wxa-runner-extractor  定位开发者工具、选择并解包基础库（.wxvpkg）
-  compiler/    @open-wxa/wxa-runner-compiler   调用官方 wcc / wcsc 编译 WXML / WXSS
+  extractor/   @open-wxa/wxa-runner-extractor  定位开发者工具、选择并解包基础库（.wxvpkg），没有时用内置基础库
+  compiler/    @open-wxa/wxa-runner-compiler   调用官方 wcc / wcsc 编译 WXML / WXSS（开发者工具或 miniprogram-compiler 自带）
   core/        @open-wxa/wxa-runner-core       项目构建、开发服务器、浏览器端运行时
   cli/         @open-wxa/wxa-runner-cli        命令行
 examples/      showcase（覆盖主要功能）、hello-world、tabbar
@@ -254,6 +252,12 @@ pnpm test:coverage
 e2e 默认使用 `/Applications/Google Chrome.app`，其他位置通过环境变量 `WXA_CHROME` 指定。
 开发者工具不在默认位置时，可用 `WXA_DEVTOOLS_PATH`、`WXA_VENDOR_DIR`（基础库目录）、`WXA_WCC` / `WXA_WCSC` 指定。
 
+**Linux / CI**：不需要开发者工具，`pnpm install` 会装上内置基础库和 miniprogram-compiler，只需指定 Chrome，如 `WXA_CHROME=/usr/bin/google-chrome pnpm test`，参考 [.github/workflows/ci.yml](./.github/workflows/ci.yml)。和开发者工具相比有三点差异：
+
+- miniprogram-compiler 只有 x86-64 的 Linux 版，ARM 的 Linux 机器不能用
+- 它的编译内核较旧（20200413，开发者工具为 20211229）：页面的编译结果相同，只有模板运行时有少量差异，如旧版限制单页最多 16000 个节点
+- 地区选择器（`picker mode="region"`）的行政区划数据取自开发者工具，Linux 上不可用
+
 欢迎提交 Issue 和 PR。
 
 ## 致谢
@@ -263,12 +267,12 @@ e2e 默认使用 `/Applications/Google Chrome.app`，其他位置通过环境变
 
 ## 许可证
 
-[MIT](./LICENSE)。微信基础库与编译器的版权归腾讯所有，本项目不包含也不分发它们，仅在运行时读取用户本机已安装的副本。
+[MIT](./LICENSE)。
 
 ---
 
 ## English summary
 
-**wxa-runner** runs WeChat Mini Programs in a regular browser using the **official base library** (`WAService.js` / `WAWebview.js`) and the official WXML/WXSS compilers from your local WeChat DevTools installation. It provides only the "native" layer the base library expects — page stack, messaging bridge, `wx.*` native APIs, and native UI such as the navigation bar, tab bar and dialogs.
+**wxa-runner** runs WeChat Mini Programs in a regular browser using the **official base library** (`WAService.js` / `WAWebview.js`) and the official WXML/WXSS compilers. It provides only the "native" layer the base library expects — page stack, messaging bridge, `wx.*` native APIs, and native UI such as the navigation bar, tab bar and dialogs.
 
-This lets you debug mini programs with Chrome DevTools and write end-to-end tests with Playwright that run headless in CI, against the real mini-program build output rather than an H5 port. Requires a local WeChat DevTools installation; base library versions up to 3.7.0 are supported.
+This lets you debug mini programs with Chrome DevTools and write end-to-end tests with Playwright that run headless in CI, against the real mini-program build output rather than an H5 port. Base library versions up to 3.7.0 are supported.

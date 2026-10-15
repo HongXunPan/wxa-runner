@@ -22,6 +22,7 @@ program
   .option('--no-setup', '不执行 setup 文件')
   .option('--no-watch', '不监听文件变化')
   .option('-o, --open', '启动后打开浏览器')
+  .option('--real-login', '使用本机微信开发者工具登录态获取真实 code 和手机号')
   .action(async (projectPath, options) => {
     const { DevServer } = require('@open-wxa/wxa-runner-core');
 
@@ -32,7 +33,8 @@ program
         host: options.host,
         baseLibVersion: options.baselib,
         setup: options.setup,
-        watch: options.watch
+        watch: options.watch,
+        realLogin: options.realLogin
       });
       const url = await server.start();
 
@@ -40,7 +42,7 @@ program
       console.log(chalk.green('  wxa-runner 已启动'));
       console.log(`  地址      ${chalk.cyan(url)}`);
       console.log(`  项目      ${server.project.root}`);
-      console.log(`  基础库    ${server.baseLib.version}`);
+      console.log(`  基础库    ${server.baseLib.version}${server.baseLib.source === 'bundled' ? '（内置）' : ''}`);
       if (server.setupFile) console.log(`  setup     ${server.setupFile}`);
       console.log('');
 
@@ -59,24 +61,25 @@ const baselib = program.command('baselib').description('管理官方基础库');
 
 baselib
   .command('list')
-  .description('列出本机微信开发者工具已下载的基础库')
+  .description('列出可用的基础库：本机微信开发者工具已下载的和内置的')
   .action(() => {
-    const { listInstalledBaseLibs, MAX_COMPATIBLE_VERSION } = require('@open-wxa/wxa-runner-extractor');
-    const libs = listInstalledBaseLibs();
+    const { listBaseLibs, MAX_COMPATIBLE_VERSION } = require('@open-wxa/wxa-runner-extractor');
+    const libs = listBaseLibs();
     if (libs.length === 0) {
-      console.log(chalk.yellow('没有找到基础库，请先安装并打开一次微信开发者工具'));
+      console.log(chalk.yellow('没有找到基础库，请先安装并打开一次微信开发者工具，或重新安装依赖以安装内置基础库'));
       return;
     }
     const defaultLib = libs.find(lib => lib.compatible);
     for (const lib of libs) {
+      const source = lib.source === 'bundled' ? chalk.cyan(' (内置)') : '';
       const mark = lib === defaultLib ? chalk.green(' (默认)') : lib.compatible ? '' : chalk.gray(` (> ${MAX_COMPATIBLE_VERSION}，暂不支持)`);
-      console.log(`  ${lib.version}${mark}`);
+      console.log(`  ${lib.version}${source}${mark}`);
     }
   });
 
 baselib
   .command('extract [version]')
-  .description('解包基础库到缓存目录（dev 命令会自动执行）')
+  .description('解包基础库到缓存目录（dev 命令会自动执行；内置基础库无需解包，直接输出所在目录）')
   .action(version => {
     const { resolveBaseLib } = require('@open-wxa/wxa-runner-extractor');
     try {

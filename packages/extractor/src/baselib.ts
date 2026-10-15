@@ -1,5 +1,9 @@
 /**
  * 基础库版本选择与提取
+ *
+ * 基础库有两个来源：本机开发者工具下载的 .wxvpkg（用时解包到缓存目录），
+ * 和内置基础库 @open-wxa/wxa-baselib（已解包，给没有开发者工具的 Linux / CI 用）。
+ * 同一版本优先用开发者工具的，内置的只在开发者工具没有该版本时兜底。
  */
 
 import fs from 'fs';
@@ -17,18 +21,31 @@ export const MAX_COMPATIBLE_VERSION = '3.7.0';
 
 export const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.wxa-runner', 'baselib');
 
+export const BUNDLED_BASELIB_PACKAGE = '@open-wxa/wxa-baselib';
+
+/** 开发者工具下载的基础库 */
 export interface InstalledBaseLib {
+  source: 'devtools';
   version: string;
+  /** .wxvpkg 文件，用时解包 */
   file: string;
   compatible: boolean;
 }
 
 export interface ResolvedBaseLib {
+  source: 'devtools' | 'bundled';
   version: string;
   /** 解包后的目录，包含 WAService.js / WAWebview.js 等 */
   dir: string;
   compatible: boolean;
 }
+
+/** 内置基础库里的一个版本，已经是解包后的目录 */
+export interface BundledBaseLib extends ResolvedBaseLib {
+  source: 'bundled';
+}
+
+export type BaseLib = InstalledBaseLib | BundledBaseLib;
 
 export function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number);
@@ -53,6 +70,7 @@ export function listInstalledBaseLibs(vendorDirs = findVendorDirs()): InstalledB
       const match = /^(\d+\.\d+\.\d+)\.wxvpkg$/.exec(file);
       if (!match || byVersion.has(match[1])) continue;
       byVersion.set(match[1], {
+        source: 'devtools',
         version: match[1],
         file: path.join(dir, file),
         compatible: isCompatibleVersion(match[1])
@@ -63,28 +81,53 @@ export function listInstalledBaseLibs(vendorDirs = findVendorDirs()): InstalledB
   return [...byVersion.values()].sort((a, b) => compareVersions(b.version, a.version));
 }
 
+/** 内置基础库的安装目录；它是可选依赖，没装上时返回 null */
+export function findBundledBaseLibRoot(): string | null {
+  try {
+    return path.dirname(require.resolve(`${BUNDLED_BASELIB_PACKAGE}/package.json`));
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 不指定版本时选择已安装的最新兼容版本。
+ * 开发者工具和内置基础库里的所有版本，从新到旧；同一版本只列开发者工具的
+ *
+ * @param bundledRoot 内置基础库目录，下面每个版本一个子目录；为 null 时只列开发者工具的
+ */
+export function listBaseLibs(vendorDirs = findVendorDirs(), bundledRoot = findBundledBaseLibRoot()): BaseLib[] {
+  const installed = listInstalledBaseLibs(vendorDirs);
+  const bundled: BundledBaseLib[] = (bundledRoot ? fs.readdirSync(bundledRoot) : [])
+    .filter(name => /^\d+\.\d+\.\d+$/.test(name) && !installed.some(lib => lib.version === name))
+    .map(version => ({ source: 'bundled', version, dir: path.join(bundledRoot!, version), compatible: isCompatibleVersion(version) }));
+
+  return [...installed, ...bundled].sort((a, b) => compareVersions(b.version, a.version));
+}
+
+/**
+ * 不指定版本时选择最新的兼容版本。
  * 指定了不兼容的版本也照常返回（compatible=false），由调用方决定是否警告。
  */
-export function selectBaseLib(installed: InstalledBaseLib[], version?: string): InstalledBaseLib {
+export function selectBaseLib<T extends BaseLib>(libs: T[], version?: string): T {
   if (version) {
-    const found = installed.find(lib => lib.version === version);
+    const found = libs.find(lib => lib.version === version);
     if (!found) {
+      const available = libs.map(lib => (lib.source === 'bundled' ? `${lib.version}（内置）` : lib.version));
       throw new Error(
-        `本机没有基础库 ${version}。已安装：${installed.map(l => l.version).join(', ') || '无'}。` +
+        `没有基础库 ${version}。可用的版本：${available.join(', ') || '无'}。` +
         '可以在微信开发者工具的「详情 → 本地设置 → 调试基础库」中下载。'
       );
     }
     return found;
   }
 
-  const compatible = installed.find(lib => lib.compatible);
+  const compatible = libs.find(lib => lib.compatible);
   if (!compatible) {
     throw new Error(
-      installed.length === 0
-        ? '没有找到微信开发者工具下载的基础库（WeappVendor/*.wxvpkg）。请先安装并打开一次微信开发者工具，或设置 WXA_VENDOR_DIR。'
-        : `已安装的基础库都高于 ${MAX_COMPATIBLE_VERSION}，请在开发者工具中下载 ${MAX_COMPATIBLE_VERSION} 或更低版本。`
+      libs.length === 0
+        ? '没有找到基础库：本机没有微信开发者工具下载的基础库（WeappVendor/*.wxvpkg），' +
+          `也没有安装内置基础库 ${BUNDLED_BASELIB_PACKAGE}。请安装并打开一次微信开发者工具（或设置 WXA_VENDOR_DIR），或重新安装依赖。`
+        : `可用的基础库都高于 ${MAX_COMPATIBLE_VERSION}，请在开发者工具中下载 ${MAX_COMPATIBLE_VERSION} 或更低版本。`
     );
   }
   return compatible;
@@ -115,10 +158,10 @@ export function extractBaseLib(lib: InstalledBaseLib, cacheDir = DEFAULT_CACHE_D
     fs.renameSync(tmpDir, dir);
   }
 
-  return { version: lib.version, dir, compatible: lib.compatible };
+  return { source: 'devtools', version: lib.version, dir, compatible: lib.compatible };
 }
 
 export function resolveBaseLib(options: { version?: string; cacheDir?: string } = {}): ResolvedBaseLib {
-  const lib = selectBaseLib(listInstalledBaseLibs(), options.version);
-  return extractBaseLib(lib, options.cacheDir);
+  const lib = selectBaseLib(listBaseLibs(), options.version);
+  return lib.source === 'bundled' ? lib : extractBaseLib(lib, options.cacheDir);
 }

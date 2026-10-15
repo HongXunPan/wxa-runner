@@ -9,12 +9,12 @@ import path from 'path';
 import { chromium, Frame, Page } from 'playwright';
 import { expect } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { createProject, hasDevtools, REPO_ROOT } from '../helpers';
+import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
 const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
-export const e2eReady = hasDevtools() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
+export const e2eReady = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
 export interface RunnerOptions {
   chromeArgs?: string[];

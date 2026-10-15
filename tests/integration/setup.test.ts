@@ -6,10 +6,10 @@ import fs from 'fs';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { createProject, hasDevtools, REPO_ROOT } from '../helpers';
+import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const ready = hasDevtools() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js'));
+const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js'));
 
 const MINI_PROGRAM = {
   'project.config.json': { appid: 'wxtest0000000000', compileType: 'miniprogram' },

@@ -2,7 +2,7 @@
  * 其余 API：内存文件系统、开放接口 Mock、剪贴板等
  *
  * 开放接口（登录、用户信息、支付）在浏览器里无法真实调用，返回可预测的假数据，
- * 测试中可以用 __wxa_test_api__.mock() 覆盖。
+ * 测试中可以用 __wxa_test_api__.mock() 覆盖。开启 --real-login 时，登录和手机号经开发服务器向微信换取真实结果。
  */
 
 import { ApiHandler, fail, ok } from './registry';
@@ -85,7 +85,7 @@ export class MemoryFileSystem {
   }
 }
 
-export function createMiscApis(appid: string): Record<string, ApiHandler> {
+export function createMiscApis(appid: string, options?: { realLogin?: boolean }): Record<string, ApiHandler> {
   const fs = new MemoryFileSystem();
 
   const guard = (api: string, action: () => Record<string, unknown> | void) => {
@@ -148,7 +148,14 @@ export function createMiscApis(appid: string): Record<string, ApiHandler> {
     operateWXData: (args, { api }) =>
       args.data?.api_name === 'webapi_getwxanetwork' ? fail(api, 'not available in wxa-runner') : ok(api),
 
-    login: (_args, { api }) => ok(api, { code: `wxa_mock_code_${Date.now().toString(36)}` }),
+    // 真实登录失败时明确返回 fail，不退回假数据：配置或登录态的问题要让开发者马上发现
+    login: options?.realLogin
+      ? async (_args, { api }) => ok(api, { code: (await postDevServer('/__wxa__/api/login')).code })
+      : (_args, { api }) => ok(api, { code: `wxa_mock_code_${Date.now().toString(36)}` }),
+    // 基础库只从 JSON.parse(data) 里取手机号的 code
+    getPhoneNumber: options?.realLogin
+      ? async (_args, { api }) => ok(api, await postDevServer('/__wxa__/api/phone-number'))
+      : (_args, { api }) => ok(api, { data: JSON.stringify({ code: `mock_phone_code_${Date.now()}` }), encryptedData: 'mock_encrypted', iv: 'mock_iv' }),
     checkSession: () => undefined,
     authorize: () => undefined,
     getSetting: (_args, { api }) => ok(api, {
@@ -175,6 +182,14 @@ export function createMiscApis(appid: string): Record<string, ApiHandler> {
 }
 
 let clipboard = '';
+
+/** @throws 开发服务器返回的失败原因（由注册表转成 xxx:fail），返回的不是 JSON 时带上状态码 */
+async function postDevServer(url: string): Promise<Record<string, any>> {
+  const response = await fetch(url, { method: 'POST' });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body) throw new Error(body?.error || `开发服务器返回 HTTP ${response.status}`);
+  return body;
+}
 
 function mockUser() {
   return { nickName: 'wxa-runner', avatarUrl: '', gender: 0, country: '', province: '', city: '', language: 'zh_CN' };

@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { AppBuilder, rewriteSafeAreaInsets, toJs } from '../../packages/core/src/project/AppBuilder';
 import { MiniProgram } from '../../packages/core/src/project/MiniProgram';
-import { createProject, hasDevtools } from '../helpers';
+import { createProject, hasToolchain } from '../helpers';
 
 function demoProject() {
   return createProject({
@@ -87,7 +87,7 @@ describe('增量构建标记', () => {
   });
 });
 
-describe.skipIf(!hasDevtools())('完整构建', () => {
+describe.skipIf(!hasToolchain())('完整构建', () => {
   it('生成逻辑层和渲染层需要的全部产物', async () => {
     const root = demoProject();
     const result = await new AppBuilder(new MiniProgram(root)).build();

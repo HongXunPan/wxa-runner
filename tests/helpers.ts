@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { findCompilerBinaries } from '../packages/compiler/src/locate';
-import { listInstalledBaseLibs } from '../packages/extractor/src/baselib';
+import { listBaseLibs } from '../packages/extractor/src/baselib';
 
 export const REPO_ROOT = path.resolve(__dirname, '..');
 export const EXAMPLES = path.join(REPO_ROOT, 'examples');
@@ -47,11 +47,11 @@ export function packWxvpkg(files: Record<string, string>): Buffer {
   return Buffer.concat([header, index, ...entries.map(entry => entry.data)]);
 }
 
-/** 本机是否装了微信开发者工具（编译器和兼容的基础库），依赖它的测试在没有时跳过 */
-export function hasDevtools(): boolean {
+/** 编译器和兼容的基础库是否都找得到（开发者工具或内置基础库），依赖它们的测试在没有时跳过 */
+export function hasToolchain(): boolean {
   try {
     findCompilerBinaries();
-    return listInstalledBaseLibs().some(lib => lib.compatible);
+    return listBaseLibs().some(lib => lib.compatible);
   } catch {
     return false;
   }

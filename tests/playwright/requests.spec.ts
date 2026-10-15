@@ -71,6 +71,17 @@ test('取消拦截后，请求照常发往网络', async ({ miniProgram }) => {
   expect(await miniProgram.callPageMethod('send', `${upstreamUrl}/api/feedback`, {})).toEqual({ ok: true });
 });
 
+test('请求发出后马上取消拦截，已发出的请求仍由原来的函数处理', async ({ miniProgram }) => {
+  await miniProgram.open();
+  await miniProgram.route('POST **/api/orders', () => ({ status: 201, body: { id: 'o-node' } }));
+
+  // wx.request 同步发出：callPageMethod 的那次 evaluate 里请求就已经匹配了这条规则
+  const sent = miniProgram.callPageMethod('send', 'https://api.example.com/api/orders', {});
+  await miniProgram.unroute('POST **/api/orders');
+
+  expect(await sent).toEqual({ id: 'o-node' });
+});
+
 test('只关心某个操作之后的请求时，先清空已记录的请求', async ({ miniProgram }) => {
   await miniProgram.route('POST **/api/orders', { status: 201, body: { id: 'o-1' } });
   await miniProgram.open();

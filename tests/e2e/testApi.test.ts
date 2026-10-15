@@ -26,6 +26,9 @@ const PAGES = {
       crash() {
         Promise.reject(new Error('页面里没有处理的错误'));
       },
+      abort() {
+        Promise.reject(new DOMException('请求被取消', 'AbortError'));
+      },
       send(url, data) {
         return new Promise(resolve => wx.request({
           url, method: 'POST', data,
@@ -173,6 +176,17 @@ describe.skipIf(!e2eReady)('测试 API：读取页面与请求', () => {
     await page.waitForFunction(() => window.__wxa_test_api__.errors().length > 0);
     expect(await page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([
       { kind: 'service', webviewId: 0, message: '页面里没有处理的错误', stack: expect.stringContaining('页面里没有处理的错误') }
+    ]);
+  });
+
+  it('页面里没处理的 DOMException 记入 errors() 时，message 也是原本的', async () => {
+    const { page } = runner;
+    await runner.open('/?path=pages/index/index');
+
+    await page.evaluate(() => window.__wxa_test_api__.callPageMethod('abort'));
+    await page.waitForFunction(() => window.__wxa_test_api__.errors().length > 0);
+    expect(await page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([
+      expect.objectContaining({ kind: 'service', message: '请求被取消' })
     ]);
   });
 

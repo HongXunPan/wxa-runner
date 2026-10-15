@@ -36,6 +36,16 @@ test('开发者打开带参数的页面，读到页面栈和参数', async ({ mi
   expect(await miniProgram.pageStack()).toEqual([expect.objectContaining({ path: 'pages/detail/detail', query: { id: '7' } })]);
 });
 
+test('页面参数里带 ? 时原样传给页面', async ({ miniProgram }) => {
+  await miniProgram.open('pages/detail/detail?id=7?from=share');
+
+  await expect(miniProgram.current.locator('#id')).toHaveText('7?from=share');
+});
+
+test('打开不存在的页面时报错，不会在首页上继续执行', async ({ miniProgram }) => {
+  await expect(miniProgram.open('pages/missing/missing')).rejects.toThrow(/pages\/missing\/missing/);
+});
+
 test('开发者调用页面方法，页面更新并拿到返回值', async ({ miniProgram }) => {
   await miniProgram.open();
 
@@ -65,6 +75,15 @@ test('小程序有未处理的运行时错误时，用例结束后失败', async
   await expect.poll(() => miniProgram.errors()).toHaveLength(1);
 });
 
+test('再次打开页面之前出现的运行时错误，用例结束后也让用例失败', async ({ miniProgram }) => {
+  test.fail();
+  await miniProgram.open();
+  await miniProgram.callPageMethod('crashLater');
+  await expect.poll(() => miniProgram.errors()).toHaveLength(1);
+
+  await miniProgram.open();
+});
+
 test.describe('关闭错误检查', () => {
   test.use({ wxaCheckErrors: false });
 
@@ -73,5 +92,14 @@ test.describe('关闭错误检查', () => {
 
     await miniProgram.callPageMethod('crashLater');
     await expect.poll(() => miniProgram.errors()).toEqual([expect.objectContaining({ message: '页面里没有处理的错误' })]);
+  });
+
+  test('再次打开页面后，errors() 仍包含之前出现的错误', async ({ miniProgram }) => {
+    await miniProgram.open();
+    await miniProgram.callPageMethod('crashLater');
+    await expect.poll(() => miniProgram.errors()).toHaveLength(1);
+
+    await miniProgram.open();
+    expect(await miniProgram.errors()).toEqual([expect.objectContaining({ message: '页面里没有处理的错误' })]);
   });
 });

@@ -45,12 +45,18 @@ test('撤销 mock 后恢复内置实现', async ({ miniProgram }) => {
   await miniProgram.unmock('login');
   await miniProgram.open();
 
-  await expect(miniProgram.current.locator('#code')).not.toHaveText('from-test');
-  await expect(miniProgram.current.locator('#code')).not.toHaveText('');
+  // 内置的 wx.login 返回 wxa_mock_code_ 开头的 code
+  await expect(miniProgram.current.locator('#code')).toHaveText(/^wxa_mock_code_/);
 });
 
 test('同步 API 只能 mock 成固定结果，传函数时立即报错', async ({ miniProgram }) => {
   await expect(miniProgram.mock('getSystemInfoSync', () => ({}))).rejects.toThrow(/同步/);
+});
+
+test('基础库同步调用的 API 不以 Sync 结尾，传函数时也立即报错', async ({ miniProgram }) => {
+  // wx.getWindowInfo、getSystemInfoSync 等都同步调用原生的 getSystemInfo
+  await expect(miniProgram.mock('getSystemInfo', () => ({}))).rejects.toThrow(/同步/);
+  await expect(miniProgram.mock('getMenuButtonBoundingClientRect', () => ({}))).rejects.toThrow(/同步/);
 });
 
 test('mock 函数抛错时，小程序收到失败，用例结束后失败', async ({ miniProgram }) => {

@@ -75,6 +75,10 @@ importers:
       typescript:
         specifier: ^5.3.2
         version: 5.9.3
+    optionalDependencies:
+      miniprogram-compiler:
+        specifier: 0.2.3
+        version: 0.2.3
 
   packages/core:
     dependencies:
@@ -118,6 +122,10 @@ importers:
       typescript:
         specifier: ^5.3.2
         version: 5.9.3
+    optionalDependencies:
+      '@open-wxa/wxa-baselib':
+        specifier: github:open-wxa/wxa-baselib
+        version: git+https://github.com/open-wxa/wxa-baselib.git#2c167c210da78d8b1e8993ea52bfe6836e6853ae
 
 packages:
 
@@ -509,6 +517,10 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@open-wxa/wxa-baselib@git+https://github.com/open-wxa/wxa-baselib.git#2c167c210da78d8b1e8993ea52bfe6836e6853ae':
+    resolution: {commit: 2c167c210da78d8b1e8993ea52bfe6836e6853ae, repo: https://github.com/open-wxa/wxa-baselib.git, type: git}
+    version: 0.1.0
 
   '@playwright/test@1.64.0':
     resolution: {integrity: sha512-oTN9FNYuN6bqQMwiho6jJKLCG2/QOYCixGXuCjRmzOq23eODeukuY2XiAVoVpAECbuezMt1MHQjAiQxK8F+Y+g==}
@@ -1398,6 +1410,9 @@ packages:
     resolution: {integrity: sha512-RHiac9mvaRw0x3AYRgDC1CxAP7HTcNrrECeA8YYJeWnpo+2Q5CegtZjaotWTWxDG3UeGA1coE05iH1mPjT/2mg==}
     engines: {node: '>=16 || 14 >=14.17'}
 
+  miniprogram-compiler@0.2.3:
+    resolution: {integrity: sha512-/MfFiXTBUwYxnrTbj1hgwk1+qGkMCTL1zi8IReOq/0SPVkUxpx19E89w+ohYCELFXkMfVbD+6ejrHh3Y1u5sVg==}
+
   mlly@1.8.2:
     resolution: {integrity: sha512-d+ObxMQFmbt10sretNDytwt85VrbkhhUA/JBGm1MPaWJ65Cl4wOgLaB1NYvJSZ0Ef03MMEU/0xpPMXUIQ29UfA==}
 
@@ -1702,6 +1717,9 @@ packages:
   std-env@3.10.0:
     resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
 
+  string.fromcodepoint@0.2.1:
+    resolution: {integrity: sha512-n69H31OnxSGSZyZbgBlvYIXlrMhJQ0dQAX1js1QDhpaUH6zmU3QYlj07bCwCNlPOu3oRXIubGPl2gDGnHsiCqg==}
+
   strip-ansi@6.0.1:
     resolution: {integrity: sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==}
     engines: {node: '>=8'}
@@ -1824,6 +1842,9 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+  unescape-js@1.1.4:
+    resolution: {integrity: sha512-42SD8NOQEhdYntEiUQdYq/1V/YHwr1HLwlHuTJB5InVVdOSbgI6xu8jK5q65yIzuFCfczzyDF/7hbGzVbyCw0g==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -2176,6 +2197,9 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
+
+  '@open-wxa/wxa-baselib@git+https://github.com/open-wxa/wxa-baselib.git#2c167c210da78d8b1e8993ea52bfe6836e6853ae':
+    optional: true
 
   '@playwright/test@1.64.0':
     dependencies:
@@ -3150,6 +3174,12 @@ snapshots:
     dependencies:
       brace-expansion: 2.1.7
 
+  miniprogram-compiler@0.2.3:
+    dependencies:
+      glob: 7.2.3
+      unescape-js: 1.1.4
+    optional: true
+
   mlly@1.8.2:
     dependencies:
       acorn: 8.19.0
@@ -3444,6 +3474,9 @@ snapshots:
 
   std-env@3.10.0: {}
 
+  string.fromcodepoint@0.2.1:
+    optional: true
+
   strip-ansi@6.0.1:
     dependencies:
       ansi-regex: 5.0.1
@@ -3559,6 +3592,11 @@ snapshots:
   ufo@1.6.4: {}
 
   undici-types@6.21.0: {}
+
+  unescape-js@1.1.4:
+    dependencies:
+      string.fromcodepoint: 0.2.1
+    optional: true
 
   unpipe@1.0.0: {}
 

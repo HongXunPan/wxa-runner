@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { MemoryFileSystem } from '../../packages/core/src/runtime/host/api/misc';
-import { ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
+import { ApiContext, ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
 import { createStorageApis, KeyValueStore, MiniProgramStorage } from '../../packages/core/src/runtime/host/api/storage';
 import { PageStack } from '../../packages/core/src/runtime/host/PageStack';
 
@@ -85,6 +85,25 @@ describe('ApiRegistry', () => {
 
   it('未实现的 API 默认返回成功，避免业务代码中断', () => {
     expect(new ApiRegistry().invoke('reportIDKey', {}, context)).toEqual({ errMsg: 'reportIDKey:ok' });
+  });
+
+  it('未实现的 API 上报调用来源，同一个 API 只上报一次', () => {
+    const reported: ApiContext[] = [];
+    const registry = new ApiRegistry(unimplemented => reported.push(unimplemented));
+    const fromPage = { api: 'chooseImage', from: 'webview' as const, webviewId: 2 };
+    registry.invoke('chooseImage', {}, fromPage);
+    registry.invoke('chooseImage', {}, fromPage);
+    expect(reported).toEqual([fromPage]);
+  });
+
+  it('基础库内部的上报类接口和 mock 过的 API 不算未实现', () => {
+    const reported: ApiContext[] = [];
+    const registry = new ApiRegistry(unimplemented => reported.push(unimplemented));
+    registry.mock('chooseImage', { tempFilePaths: ['a.png'] });
+    registry.invoke('reportIDKey', {}, { ...context, api: 'reportIDKey' });
+    registry.invoke('chooseImage', {}, { ...context, api: 'chooseImage' });
+    registry.invoke('addPhoneContact', {}, { ...context, api: 'addPhoneContact' });
+    expect(reported.map(unimplemented => unimplemented.api)).toEqual(['addPhoneContact']);
   });
 });
 

@@ -23,6 +23,9 @@ const PAGES = {
       setUser(user) {
         this.setData({ user });
       },
+      crash() {
+        Promise.reject(new Error('页面里没有处理的错误'));
+      },
       send(url, data) {
         return new Promise(resolve => wx.request({
           url, method: 'POST', data,
@@ -160,6 +163,17 @@ describe.skipIf(!e2eReady)('测试 API：读取页面与请求', () => {
     expect((await send(url, {})).data).toEqual({ path: '/api/user', body: '{}' });
 
     await expect(page.evaluate(() => window.__wxa_test_api__.route('FETCH https://a.com/x', {}))).rejects.toThrow(/请求方法/);
+  });
+
+  it('页面里没有处理的错误记入 errors()，保留原本的 message 和 stack', async () => {
+    const { page } = runner;
+    await runner.open('/?path=pages/index/index');
+
+    await page.evaluate(() => window.__wxa_test_api__.callPageMethod('crash'));
+    await page.waitForFunction(() => window.__wxa_test_api__.errors().length > 0);
+    expect(await page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([
+      { kind: 'service', webviewId: 0, message: '页面里没有处理的错误', stack: expect.stringContaining('页面里没有处理的错误') }
+    ]);
   });
 
   it('测试用 mock 覆盖 wx.request 时得到提示，改用 route 拦截', async () => {

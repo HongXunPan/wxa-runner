@@ -51,13 +51,14 @@
 - ✅ **Playwright 可直接操作**：每个页面是一个同源 iframe，元素可以用标准选择器查询
 - ✅ **无头模式**：已在 headless Chrome 下验证
 - ✅ **Mock 注入点**：`window.__wxa_test_api__.mock(api, impl)` 覆盖任意原生 API
-- ⏳ `@open-wxa/playwright` 辅助库（Phase 3）
+- ✅ **Playwright fixture**：`@open-wxa/wxa-runner-playwright` 每个 worker 启动开发服务器，读页面 data、断言请求、自动重试的断言
 
 ### 5. 架构分层（Layered Architecture）
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ 应用层   cli                   命令行                      │
+│          playwright            Playwright fixture          │
 └───────────────┬──────────────────────────────────────────┘
 ┌───────────────┴──────────────────────────────────────────┐
 │ 服务层   core/server  DevServer、网络代理、WS               │
@@ -112,11 +113,18 @@ wxa-runner/
 │   │               ├── Host.ts        # 宿主：消息分发、路由、页面栈
 │   │               ├── PageStack.ts   # 页面栈（纯逻辑）
 │   │               ├── PageView.ts    # 单个渲染层 iframe
-│   │               ├── testApi.ts     # window.__wxa_test_api__
+│   │               ├── testApi.ts     # window.__wxa_test_api__（每个成员的说明写在 WxaTestApi 的注释里）
 │   │               ├── api/           # 原生 API：storage / system / network / ui / media / picker / webView / misc + 注册表
 │   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器、图片预览、文件选择框
 │   │
-│   └── cli/bin/wxa-runner.js          # @open-wxa/wxa-runner-cli
+│   ├── cli/bin/wxa-runner.js          # @open-wxa/wxa-runner-cli
+│   │
+│   └── playwright/                    # @open-wxa/wxa-runner-playwright：Playwright fixture
+│       └── src/
+│           ├── index.ts               # test / expect、配置项；每个 worker 一个 DevServer
+│           ├── miniProgram.ts         # miniProgram：转发测试 API，mock / route 的声明保存在 Node 侧
+│           ├── matchers.ts            # toHavePath / toHavePageData
+│           └── request.ts             # 按 Content-Type 解析请求体
 │
 ├── examples/
 │   ├── showcase/                      # 覆盖主要功能的示例（组件、wxs、路由、tabBar、API）
@@ -126,11 +134,11 @@ wxa-runner/
 └── tests/
     ├── unit/                          # 解包、编译、项目解析、构建、文件监听、运行时纯逻辑、原生 API
     ├── integration/                   # DevServer 路由、网络代理
-    └── e2e/                           # 真实浏览器运行 showcase 和临时小程序（原生组件等）
+    ├── e2e/                           # 真实浏览器运行 showcase 和临时小程序（原生组件等）
+    └── playwright/                    # 用 Playwright fixture 写的用例（pnpm test:playwright）
 ```
 
-> 与最初方案的差异：没有单独的 `wxa-runner-playwright` 包（Phase 3）；`vendor/` 目录不再存在，
-> 基础库在运行时从开发者工具解包到用户目录。
+> 与最初方案的差异：`vendor/` 目录不再存在，基础库在运行时从开发者工具解包到用户目录。
 
 ---
 
@@ -486,19 +494,30 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - 插件、分包异步化、Worker
 - 页面内存状态保持的热更新
 
-### Phase 3：Playwright 集成
-
-直接用 Playwright 加 `__wxa_test_api__` 就能写测试，先补齐让这种用法顺手的部分：
+### Phase 3：Playwright 集成 ✅
 
 - [x] Mock 注入 API（`__wxa_test_api__.mock`）
 - [x] 当前页标记：`iframe[data-current]` 始终指向当前页，跨跳转可直接用 `page.frameLocator`
 - [x] `window.__wxa_test_api__` 的全局类型声明（`@open-wxa/wxa-runner-core/test-api`）
-- [ ] 测试最佳实践文档
+- [x] 测试最佳实践文档（[docs/testing.md](./docs/testing.md)）
+- [x] `@open-wxa/wxa-runner-playwright`（[#4](https://github.com/open-wxa/wxa-runner/issues/4)）
 
-暂缓 `@open-wxa/playwright` 辅助库。服务器生命周期可以交给 Playwright 自带的 `webServer`，
-运行时错误检查一行 `afterEach` 就够，单独发一个包的维护成本目前换不来什么。
-出现文档和配置表达不了的需求时再做，例如：Node 侧执行的 mock 处理函数（便于断言请求参数）、
-按 WXML 标签名和组件样式隔离前缀选择元素、`toHavePath` / `toHavePageData` 这类自动重试的断言。
+起初认为服务器生命周期交给 Playwright 自带的 `webServer`、错误检查写一行 `afterEach` 就够，暂缓了单独发包。
+实际使用中出现了文档和配置表达不了的需求，于是做成 fixture：
+
+- 多个 worker 并行时，端口和服务器生命周期要自己管：fixture 每个 worker 启动一个 DevServer（随机端口）
+- 浏览器里的运行时和测试代码引用的类型可能不是同一个版本：core 作为 fixture 的普通依赖，由 fixture 启动服务器
+- `page.evaluate` 只读一次，跳转后要手动 `waitForPage`：`toHavePath` / `toHavePageData` 自动重试
+- `network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体：宿主在匹配之前记录每个
+  `wx.request`，`requests()` / `waitForRequest()` 读取
+- Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象
+- 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里重新声明
+  Node 侧保存的 mock / route，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后也还在
+
+说明只写在类型注释里：`WxaTestApi` 和 `MiniProgram` 的每个成员都有注释（fixture 转发的成员经映射类型复用 core 的注释），
+单元测试检查每个成员都有注释、测试 API 的每个成员都写进了 docs/testing.md 的表格。
+
+还没做的：按 WXML 标签名和组件样式隔离前缀选择元素。
 
 ### Phase 4：生产优化（预计 2 周）
 

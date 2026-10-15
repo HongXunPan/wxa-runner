@@ -112,7 +112,7 @@ Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.
 ## Known limitations
 
 - Base library 3.7.0 at most ([#9](https://github.com/open-wxa/wxa-runner/issues/9))
-- Unimplemented native APIs return success, with only a console warning ([#2](https://github.com/open-wxa/wxa-runner/issues/2))
+- Unimplemented native APIs return success; tests can catch them through `errors()` (see [docs/testing.md](./docs/testing.md#注意事项))
 - No video, map, audio or Bluetooth, and no media pickers such as `chooseImage` ([#7](https://github.com/open-wxa/wxa-runner/issues/7), [#8](https://github.com/open-wxa/wxa-runner/issues/8))
 - No plugins, async subpackages or Workers ([#10](https://github.com/open-wxa/wxa-runner/issues/10))
 - Without WeChat DevTools (on Linux or in CI, say): x86-64 only; the compiler is older, with small template-runtime differences (such as a limit of 16,000 nodes per page); the region picker is unavailable

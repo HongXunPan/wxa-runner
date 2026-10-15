@@ -6,7 +6,7 @@
  */
 
 import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
-import { ApiRegistry, ApiResult, fail, ok } from './api/registry';
+import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis } from './api/network';
 import { createPickerApis, fetchRegionData } from './api/picker';
@@ -31,6 +31,8 @@ export interface FrameError {
   webviewId: number;
   message: string;
   stack?: string;
+  /** 调用了未实现的原生 API 时为 API 名称 */
+  api?: string;
 }
 
 const ROUTE_DONE_DELAY = 300;
@@ -38,9 +40,9 @@ const PAGE_LOAD_TIMEOUT = 15000;
 
 export class Host implements HostApi {
   readonly device;
-  readonly api = new ApiRegistry();
-  readonly shell: PhoneShell;
   readonly errors: FrameError[] = [];
+  readonly api = new ApiRegistry(context => this.reportUnimplemented(context));
+  readonly shell: PhoneShell;
   readonly storage: MiniProgramStorage;
   /** setup 声明的请求拦截 */
   readonly routes = new RequestRoutes();
@@ -149,6 +151,22 @@ export class Host implements HostApi {
       webviewId,
       message: err ? err.message : String(error),
       stack: err?.stack
+    });
+  }
+
+  /**
+   * 业务代码只运行在逻辑层，所以只记逻辑层调用、名字在 wx 上的 API，每个 API 一次。
+   * 其余是基础库内部调用的原生接口（如 getAppContact、loadLibFilesSync），业务既没调用也 mock 不了
+   */
+  private reportUnimplemented({ api, from }: ApiContext) {
+    const wx = (this.service?.win as any)?.wx;
+    if (from !== 'service' || typeof wx?.[api] !== 'function') return;
+    if (this.errors.some(error => error.api === api)) return;
+    this.errors.push({
+      kind: 'service',
+      webviewId: 0,
+      api,
+      message: `wx.${api} 尚未实现，返回了默认成功。可以用 mock 覆盖，启动阶段就调用的要在 setup 里 mock`
     });
   }
 

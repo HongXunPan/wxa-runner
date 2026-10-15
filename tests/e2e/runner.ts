@@ -20,6 +20,8 @@ export interface RunnerOptions {
   chromeArgs?: string[];
   /** 授予页面的浏览器权限，如 camera */
   permissions?: string[];
+  /** 不指定时用最新的兼容版本 */
+  baseLibVersion?: string;
 }
 
 export interface Runner {
@@ -39,6 +41,7 @@ export async function startRunner(files: Record<string, string | object>, option
     }),
     port: 0,
     watch: false,
+    baseLibVersion: options.baseLibVersion,
     runtimeDir: RUNTIME_DIR,
     logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
   });

@@ -305,6 +305,8 @@ navigateTo(url)
 | 路由 | 由 Host 实现 |
 
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。
+其中业务代码调用的（逻辑层发起、名字在 `wx` 上）还会记入测试 API 的 `errors()`，每个 API 一次；
+基础库内部调用的原生接口（如 `getAppContact`、渲染层的 `loadLibFilesSync`）不记，因为业务既没调用也 mock 不了。
 测试中可以用 `__wxa_test_api__.mock()` 覆盖任意 API。
 
 #### 原生组件

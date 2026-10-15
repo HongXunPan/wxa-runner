@@ -112,7 +112,7 @@ test('提交后跳转到结果页', async ({ page }) => {
 ## 已知限制
 
 - 基础库最高 3.7.0（[#9](https://github.com/open-wxa/wxa-runner/issues/9)）
-- 没有实现的原生 API 会返回成功，只在控制台警告（[#2](https://github.com/open-wxa/wxa-runner/issues/2)）
+- 没有实现的原生 API 会返回成功，测试中可以从 `errors()` 发现（见 [docs/testing.md](./docs/testing.md#注意事项)）
 - 不支持 video、map、音频、蓝牙，以及 `chooseImage` 等媒体选择（[#7](https://github.com/open-wxa/wxa-runner/issues/7)、[#8](https://github.com/open-wxa/wxa-runner/issues/8)）
 - 不支持插件、分包异步化、Worker（[#10](https://github.com/open-wxa/wxa-runner/issues/10)）
 - 没有开发者工具时（如 Linux、CI）：只支持 x86-64；编译器版本较旧，模板运行时有少量差异（如单页最多 16000 个节点）；地区选择器不可用

@@ -27,6 +27,27 @@ export interface RecordedRequest extends MockRequest {
   routedBy: string | null;
 }
 
+/** 最近发出的 wx.request。平时调试不跑测试时也在记录，只保留最近的 limit 个，内存不会一直增长 */
+export class RequestLog {
+  private items: RecordedRequest[] = [];
+
+  constructor(private readonly limit = 1000) {}
+
+  add(request: RecordedRequest) {
+    this.items.push(request);
+    if (this.items.length > this.limit) this.items.splice(0, this.items.length - this.limit);
+  }
+
+  /** 按发出顺序；返回副本，修改它不影响记录 */
+  list(): RecordedRequest[] {
+    return this.items.map(request => ({ ...request, header: { ...request.header } }));
+  }
+
+  clear() {
+    this.items = [];
+  }
+}
+
 interface ProxyResponse {
   statusCode: number;
   header: Record<string, string>;

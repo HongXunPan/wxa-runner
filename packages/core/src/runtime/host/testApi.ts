@@ -68,7 +68,7 @@ export interface WxaTestApi {
   /** 删除按这个写法添加的拦截规则；不传时删除全部，包括 setup 声明的 */
   unroute(pattern?: string): void;
   /**
-   * 小程序发出的 wx.request，按发出顺序，被拦截的和经代理转发的都有。整页刷新后清空
+   * 小程序发出的 wx.request，按发出顺序，被拦截的和经代理转发的都有。只保留最近 1000 个，整页刷新后清空
    * @param pattern 只返回匹配的请求，写法同 route
    * @throws pattern 写法不对时
    */
@@ -168,11 +168,9 @@ export function installTestApi(host: Host, ready: Promise<void>): WxaTestApi {
     unroute: pattern => host.routes.remove(pattern),
     requests(pattern) {
       const matches = pattern === undefined ? () => true : compilePattern(pattern);
-      return host.requests.filter(matches).map(request => ({ ...request, header: { ...request.header } }));
+      return host.requests.list().filter(matches);
     },
-    clearRequests: () => {
-      host.requests.length = 0;
-    },
+    clearRequests: () => host.requests.clear(),
     navigateTo: url => host.enqueueRoute(() => host.navigateTo(url)),
     navigateBack: (delta = 1) => host.enqueueRoute(() => host.navigateBack(delta)),
     redirectTo: url => host.enqueueRoute(() => host.redirectTo(url)),

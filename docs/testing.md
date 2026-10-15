@@ -139,7 +139,7 @@ test.afterEach(async ({ page }) => {
 | `callPageMethod(name, ...args)` | 调用当前页的方法，返回方法的返回值（返回 Promise 时等它完成）；参数要能 JSON 序列化 |
 | `mock(api, impl)` / `unmock(api?)` | 覆盖原生 API：对象作为返回结果，函数按调用参数返回；`unmock()` 不传参数时清除全部 |
 | `route(pattern, handler)` / `unroute(pattern?)` | 拦截 `wx.request`，写法同 setup 的 [`network.routes`](./setup.md#拦截请求)，后添加的优先；`unroute()` 不传参数时删除全部 |
-| `requests(pattern?)` / `clearRequests()` | 小程序发出的 `wx.request`（方法、地址、请求头、请求体 `data`、命中的拦截规则 `routedBy`），被拦截的和经代理转发的都有；可按规则筛选 |
+| `requests(pattern?)` / `clearRequests()` | 小程序发出的 `wx.request`（方法、地址、请求头、请求体 `data`、命中的拦截规则 `routedBy`），被拦截的和经代理转发的都有，只保留最近 1000 个；可按规则筛选 |
 | `navigateTo` / `navigateBack` / `redirectTo` / `reLaunch` / `switchTab` | 直接跳转页面 |
 | `getStorage(key)` / `clearStorage()` | 读取、清空小程序的 Storage |
 | `errors()` | 逻辑层、渲染层的运行时错误，以及业务代码调用过的未实现 wx API（`api` 为 API 名称，每个 API 记一次） |

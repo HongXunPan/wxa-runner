@@ -9,7 +9,7 @@ import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '.
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
-import { createNetworkApis, RecordedRequest } from './api/network';
+import { createNetworkApis, RequestLog } from './api/network';
 import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
@@ -43,8 +43,8 @@ const PAGE_LOAD_TIMEOUT = 15000;
 export class Host implements HostApi {
   readonly device;
   readonly errors: FrameError[] = [];
-  /** 小程序发出的 wx.request，按发出顺序 */
-  readonly requests: RecordedRequest[] = [];
+  /** 小程序发出的 wx.request */
+  readonly requests = new RequestLog();
   readonly api = new ApiRegistry(context => this.reportUnimplemented(context));
   readonly shell: PhoneShell;
   readonly storage: MiniProgramStorage;
@@ -149,13 +149,13 @@ export class Host implements HostApi {
   }
 
   reportError(kind: FrameKind, webviewId: number, error: unknown) {
-    // 错误对象来自 iframe，跨 realm 的 instanceof Error 不成立
-    const err = Object.prototype.toString.call(error) === '[object Error]' ? error as Error : null;
+    // 错误对象来自 iframe，跨 realm 的 instanceof Error 不成立；DOMException 等也不是 Error 的实例
+    const err = typeof (error as Error | null)?.message === 'string' ? error as Error : null;
     this.errors.push({
       kind,
       webviewId,
       message: err ? err.message : String(error),
-      stack: err?.stack
+      stack: typeof err?.stack === 'string' ? err.stack : undefined
     });
   }
 
@@ -426,7 +426,7 @@ export class Host implements HostApi {
         emit: (event, data) => this.emitToService(event, data),
         defaultTimeout: () => this.info.wxConfig.networkTimeout?.request || 60000,
         routes: this.routes,
-        onRequest: request => this.requests.push(request)
+        onRequest: request => this.requests.add(request)
       }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMediaApis({

@@ -149,7 +149,8 @@ export class Host implements HostApi {
   }
 
   reportError(kind: FrameKind, webviewId: number, error: unknown) {
-    const err = error instanceof Error ? error : null;
+    // 错误对象来自 iframe，跨 realm 的 instanceof Error 不成立
+    const err = Object.prototype.toString.call(error) === '[object Error]' ? error as Error : null;
     this.errors.push({
       kind,
       webviewId,

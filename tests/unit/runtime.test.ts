@@ -87,13 +87,14 @@ describe('ApiRegistry', () => {
     expect(new ApiRegistry().invoke('reportIDKey', {}, context)).toEqual({ errMsg: 'reportIDKey:ok' });
   });
 
-  it('未实现的 API 上报调用来源，同一个 API 只上报一次', () => {
+  it('未实现的 API 上报调用来源，渲染层先调用过不影响之后逻辑层调用的上报', () => {
     const reported: ApiContext[] = [];
     const registry = new ApiRegistry(unimplemented => reported.push(unimplemented));
-    const fromPage = { api: 'chooseImage', from: 'webview' as const, webviewId: 2 };
-    registry.invoke('chooseImage', {}, fromPage);
-    registry.invoke('chooseImage', {}, fromPage);
-    expect(reported).toEqual([fromPage]);
+    const fromWebview = { api: 'getVolume', from: 'webview' as const, webviewId: 2 };
+    const fromService = { api: 'getVolume', from: 'service' as const, webviewId: 2 };
+    registry.invoke('getVolume', {}, fromWebview);
+    registry.invoke('getVolume', {}, fromService);
+    expect(reported).toEqual([fromWebview, fromService]);
   });
 
   it('基础库内部的上报类接口和 mock 过的 API 不算未实现', () => {

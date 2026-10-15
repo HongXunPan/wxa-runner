@@ -7,13 +7,13 @@ import { listBaseLibs } from '../packages/extractor/src/baselib';
 export const REPO_ROOT = path.resolve(__dirname, '..');
 export const EXAMPLES = path.join(REPO_ROOT, 'examples');
 
-/** 在临时目录里按 { 相对路径: 内容 } 创建文件，对象值会序列化为 JSON */
+/** 在临时目录里按 { 相对路径: 内容 } 创建文件，Buffer 原样写入，其余对象序列化为 JSON */
 export function createProject(files: Record<string, string | object>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wxa-runner-test-'));
   for (const [file, content] of Object.entries(files)) {
     const target = path.join(root, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, typeof content === 'string' ? content : JSON.stringify(content));
+    fs.writeFileSync(target, typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content));
   }
   return root;
 }

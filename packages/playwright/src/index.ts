@@ -11,24 +11,23 @@
 
 import path from 'path';
 import { expect as baseExpect, test as base } from '@playwright/test';
-import { DevServer, DevServerOptions } from '@open-wxa/wxa-runner-core';
+import { DevServer } from '@open-wxa/wxa-runner-core';
 import { miniProgramMatchers } from './matchers';
 import { createMiniProgram, MiniProgram } from './miniProgram';
+import { devServerOptions, WxaServerOptions } from './server';
 
 export type { MiniProgram, MockHandler, RouteHandler } from './miniProgram';
 export type { MiniProgramRequest } from './request';
-
-/** 开发服务器的其余参数，如 baseLibVersion、device、setup */
-export type WxaServerOptions = Omit<DevServerOptions, 'projectPath' | 'port' | 'host' | 'watch' | 'runtimeDir' | 'logger'>;
+export type { WxaServerOptions } from './server';
 
 /** 在 playwright.config.ts 的 use 里配置，或在用例文件里用 test.use 修改 */
 export interface WxaOptions {
   /**
    * 小程序项目目录（project.config.json 所在目录）。相对路径基于 Playwright 配置文件所在目录，默认就是这个目录。
-   * 每个 worker 启动一个开发服务器：用 test.use 修改时，Playwright 会换一个 worker
+   * 每个 worker 启动一个开发服务器，所以只能在配置文件或用例文件顶层修改（test.use），修改后 Playwright 会换一个 worker
    */
   wxaProject: string;
-  /** 开发服务器的其余参数。同 wxaProject，每个 worker 一份 */
+  /** 开发服务器的其余参数，其中 setup 等路径也相对配置文件所在目录。同 wxaProject，只能在配置文件或用例文件顶层修改 */
   wxaServerOptions: WxaServerOptions;
   /** 用例结束时检查 errors() 为空，默认 true。有意触发运行时错误的用例用 test.use({ wxaCheckErrors: false }) 关掉 */
   wxaCheckErrors: boolean;
@@ -56,28 +55,21 @@ export const test = base.extend<
 
   wxaServer: [async ({ wxaProject, wxaServerOptions }, use, workerInfo) => {
     const configDir = workerInfo.config.configFile ? path.dirname(workerInfo.config.configFile) : process.cwd();
-    const server = new DevServer({
-      ...wxaServerOptions,
-      projectPath: path.resolve(configDir, wxaProject),
-      port: 0,
-      watch: false,
-      // 编译完成之类的日志每个 worker 都打一遍，只留警告和错误
-      logger: { log: () => undefined, warn: console.warn, error: console.error }
-    });
+    const server = new DevServer(devServerOptions(configDir, wxaProject, wxaServerOptions));
     await server.start();
     await use(server);
     await server.close();
   }, { scope: 'worker', timeout: 60000 }],
 
   miniProgram: async ({ page, wxaServer, wxaCheckErrors }, use) => {
-    const session = await createMiniProgram(page, wxaServer.url);
+    const session = await createMiniProgram(page, {
+      baseURL: wxaServer.url,
+      listPages: () => wxaServer.builder.build().then(build => build.pages, () => null)
+    });
     await use(session.miniProgram);
 
     session.throwHandlerError();
-    if (wxaCheckErrors) {
-      const errors = await page.evaluate(() => window.__wxa_test_api__?.errors() ?? []).catch(() => []);
-      baseExpect(errors, ERRORS_HINT).toEqual([]);
-    }
+    if (wxaCheckErrors) baseExpect(await session.miniProgram.errors(), ERRORS_HINT).toEqual([]);
   }
 });
 

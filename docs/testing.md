@@ -60,10 +60,15 @@ test('提交订单后跳转到结果页', async ({ miniProgram }) => {
 - 其他：`getStorage`、`clearStorage`、`errors`
 - 断言：`expect(miniProgram).toHavePath(path)`、`toHavePageData(data, { path? })`，后者只比较列出的字段
 
+同一个用例里再次 `open()` 会整页重新加载：之前的 `mock`、`route` 和撤销（`unmock`、`unroute`，包括撤销 setup 声明的）
+都保留，`errors()` 也包含重新加载前出现的错误。`open()` 的页面不在 app.json 里时直接报错。
+
 ### mock 和 route 传函数
 
 - 传对象时在浏览器里直接返回；传函数时函数在 Node 里执行，能用用例里的变量、检查小程序传入的参数
-- 函数的结果是异步返回的：以 `Sync` 结尾的同步 API 只能 mock 成对象；参数和返回值要能序列化
+- 函数的结果是异步返回的：基础库同步调用的 API 只能 mock 成对象，包括以 `Sync` 结尾的，以及 `getSystemInfo`
+  （`wx.getWindowInfo`、`getSystemInfoSync` 等都经过它）、`getMenuButtonBoundingClientRect`；参数和返回值要能序列化
+- 撤销或替换之前已经发出的调用，仍由原来的函数处理
 - 函数抛错时这次调用失败，用例结束后也失败：写在函数里的 `expect` 失败了不会被吞掉
 - `route` 的函数拿到的 `request.body` 已按 Content-Type 解析（JSON、表单），和 `requests()` 一样
 
@@ -72,11 +77,11 @@ test('提交订单后跳转到结果页', async ({ miniProgram }) => {
 | 选项 | 默认值 | 作用 |
 | --- | --- | --- |
 | `wxaProject` | `'.'` | 小程序项目目录，相对 Playwright 配置文件所在目录 |
-| `wxaServerOptions` | `{}` | 开发服务器的其他参数，如 `baseLibVersion`、`device`、`setup`、`realLogin` |
+| `wxaServerOptions` | `{}` | 开发服务器的其他参数，如 `baseLibVersion`、`device`、`setup`、`realLogin`；`setup` 等路径也相对配置文件所在目录 |
 | `wxaCheckErrors` | `true` | 用例结束时检查 `errors()` 为空。有意触发错误的用例用 `test.use({ wxaCheckErrors: false })` 关掉 |
 
 - 每个 worker 启动一个开发服务器，编译只做一次。`wxaProject`、`wxaServerOptions` 按 worker 生效，
-  在用例文件里用 `test.use` 修改时，Playwright 会换一个 worker、启动新的开发服务器
+  只能写在配置文件或用例文件顶层的 `test.use` 里（不能在 `describe` 里），修改后 Playwright 会换一个 worker、启动新的开发服务器
 - 每个用例一个新的浏览器上下文，Storage、页面栈互不影响
 
 ## 直接使用测试 API

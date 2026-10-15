@@ -122,9 +122,10 @@ wxa-runner/
 │   └── playwright/                    # @open-wxa/wxa-runner-playwright：Playwright fixture
 │       └── src/
 │           ├── index.ts               # test / expect、配置项；每个 worker 一个 DevServer
-│           ├── miniProgram.ts         # miniProgram：转发测试 API，mock / route 的声明保存在 Node 侧
+│           ├── miniProgram.ts         # miniProgram：转发测试 API；mock / route 等按调用顺序记在 Node 侧，页面加载时重放
 │           ├── matchers.ts            # toHavePath / toHavePageData
-│           └── request.ts             # 按 Content-Type 解析请求体
+│           ├── request.ts             # 按 Content-Type 解析请求体
+│           └── server.ts              # 开发服务器参数，路径相对 Playwright 配置文件
 │
 ├── examples/
 │   ├── showcase/                      # 覆盖主要功能的示例（组件、wxs、路由、tabBar、API）
@@ -511,8 +512,8 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - `network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体：宿主在匹配之前记录每个
   `wx.request`，`requests()` / `waitForRequest()` 读取
 - Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象
-- 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里重新声明
-  Node 侧保存的 mock / route，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后也还在
+- 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里按顺序重放
+  Node 侧记下的 mock / unmock / route / unroute，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后状态不变
 
 说明只写在类型注释里：`WxaTestApi` 和 `MiniProgram` 的每个成员都有注释（fixture 转发的成员经映射类型复用 core 的注释），
 单元测试检查每个成员都有注释、测试 API 的每个成员都写进了 docs/testing.md 的表格。

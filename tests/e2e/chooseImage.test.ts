@@ -3,6 +3,7 @@
  *
  * 选图由宿主打开浏览器的文件选择框，测试用 Playwright 的 filechooser 直接给文件，不弹系统窗口。
  * 和真机一样，相册和拍摄都可选时先弹菜单。没有经过用户点击就选图时也先弹菜单，见 tests/unit/media.test.ts。
+ * 网络图片（downloadFile、getImageInfo）的临时路径同样要能直接显示。
  */
 
 import fs from 'fs';
@@ -41,6 +42,7 @@ function png(width: number, height: number): Buffer {
 const AVATAR = { name: 'avatar.png', mimeType: 'image/png', buffer: png(40, 30) };
 const BANNER = { name: 'banner.png', mimeType: 'image/png', buffer: png(20, 10) };
 const ICON = { name: 'icon.png', mimeType: 'image/png', buffer: png(8, 8) };
+const REMOTE = { name: 'remote.png', mimeType: 'image/png', buffer: png(24, 12) };
 
 const ALBUM_WXML = `
 <button id="choose" bindtap="choose">选图</button>
@@ -52,13 +54,15 @@ const ALBUM_WXML = `
 <button id="chosen-info" bindtap="chosenImageInfo">所选图片信息</button>
 <button id="package-info" bindtap="packageImageInfo">包内图片信息</button>
 <button id="save" bindtap="save">保存到相册</button>
+<button id="download" bindtap="download">下载网络图片</button>
+<button id="network-info" bindtap="networkImageInfo">网络图片信息</button>
 <view id="result">{{result}}</view>
 <image wx:if="{{paths.length}}" src="{{paths[0]}}" bindload="onPhotoLoad" binderror="onPhotoError" style="width:40px;height:30px"></image>
 <view id="photo">{{photo}}</view>
 <view id="upload-result">{{uploadResult}}</view>
 `;
 
-const albumJs = (uploadUrl: string) => `
+const albumJs = (server: string) => `
 Page({
   data: { result: '', paths: [], photo: '', uploadResult: '' },
   report(err) { this.setData({ result: err.errMsg }); },
@@ -88,7 +92,7 @@ Page({
   onPhotoError(e) { this.setData({ photo: 'error ' + e.detail.errMsg }); },
   upload() {
     wx.uploadFile({
-      url: '${uploadUrl}',
+      url: '${server}/upload',
       filePath: this.data.paths[0],
       name: 'avatar',
       formData: { user: 'u1' },
@@ -111,6 +115,20 @@ Page({
   packageImageInfo() { this.showImageInfo('/images/logo.png'); },
   save() {
     wx.saveImageToPhotosAlbum({ filePath: this.data.paths[0], success: res => this.report(res), fail: err => this.report(err) });
+  },
+  download() {
+    wx.downloadFile({
+      url: '${server}/remote.png',
+      success: res => this.setData({ result: 'downloaded ' + res.statusCode, paths: [res.tempFilePath] }),
+      fail: err => this.report(err)
+    });
+  },
+  networkImageInfo() {
+    wx.getImageInfo({
+      src: '${server}/remote.png',
+      success: res => this.setData({ result: res.width + 'x' + res.height + ' ' + res.type, paths: [res.path] }),
+      fail: err => this.report(err)
+    });
   }
 });
 `;
@@ -119,7 +137,8 @@ const ALBUM_PAGE = '/?path=pages/album/album';
 
 describe.skipIf(!e2eReady)('选图、预览与保存图片', () => {
   let runner: Runner;
-  let uploadServer: http.Server;
+  // 业务服务器：接收上传，提供网络图片
+  let server: http.Server;
   const uploads: Buffer[] = [];
 
   const sheetButton = (name: string) => runner.page.getByRole('button', { name, exact: true });
@@ -142,7 +161,12 @@ describe.skipIf(!e2eReady)('选图、预览与保存图片', () => {
   }
 
   beforeAll(async () => {
-    uploadServer = http.createServer((req, res) => {
+    server = http.createServer((req, res) => {
+      if (req.method === 'GET') {
+        res.setHeader('content-type', 'image/png');
+        res.end(REMOTE.buffer);
+        return;
+      }
       const chunks: Buffer[] = [];
       req.on('data', chunk => chunks.push(chunk));
       req.on('end', () => {
@@ -150,15 +174,15 @@ describe.skipIf(!e2eReady)('选图、预览与保存图片', () => {
         res.end('received');
       });
     });
-    await new Promise<void>(resolve => uploadServer.listen(0, '127.0.0.1', resolve));
-    const uploadUrl = `http://127.0.0.1:${(uploadServer.address() as AddressInfo).port}/upload`;
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const serverUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
     runner = await startRunner({
       'app.json': { pages: ['pages/album/album'] },
       'images/logo.png': png(16, 8),
       'pages/album/album.json': {},
       'pages/album/album.wxml': ALBUM_WXML,
-      'pages/album/album.js': albumJs(uploadUrl)
+      'pages/album/album.js': albumJs(serverUrl)
     });
     // 等不到文件选择框、菜单时尽快失败，不等满 Playwright 默认的 30 秒
     runner.page.setDefaultTimeout(5000);
@@ -170,7 +194,7 @@ describe.skipIf(!e2eReady)('选图、预览与保存图片', () => {
 
   afterAll(async () => {
     await runner?.close();
-    uploadServer?.close();
+    server?.close();
   });
 
   describe('chooseImage', () => {
@@ -303,6 +327,26 @@ describe.skipIf(!e2eReady)('选图、预览与保存图片', () => {
       await expectText(frame, '#result', 'saveImageToPhotosAlbum:ok');
       expect(download.suggestedFilename()).toMatch(/\.png$/);
       expect(fs.readFileSync((await download.path())!).equals(AVATAR.buffer)).toBe(true);
+    });
+  });
+
+  describe('网络图片', () => {
+    it('页面用 downloadFile 下载的图片，临时路径能直接作为 image 显示', async () => {
+      const frame = await runner.open(ALBUM_PAGE);
+
+      await frame.click('#download');
+
+      await expectText(frame, '#result', 'downloaded 200');
+      await expectText(frame, '#photo', 'loaded 24x12');
+    });
+
+    it('getImageInfo 读取网络图片时返回宽高和格式，返回的 path 能直接作为 image 显示', async () => {
+      const frame = await runner.open(ALBUM_PAGE);
+
+      await frame.click('#network-info');
+
+      await expectText(frame, '#result', '24x12 png');
+      await expectText(frame, '#photo', 'loaded 24x12');
     });
   });
 });

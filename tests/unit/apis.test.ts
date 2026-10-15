@@ -158,13 +158,21 @@ describe('网络 API', () => {
     expect(events[0][1]).toMatchObject({ state: 'fail' });
   });
 
-  it('downloadFile 把响应保存为 blob URL', async () => {
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:mock' }));
+  it('downloadFile 把下载的文件存成开发服务器上的临时文件，返回它的地址', async () => {
+    const saved: Array<{ url: string; content: string }> = [];
     const { apis, events } = setup(proxied('file-content'));
-    const { downloadTaskId } = call(apis, 'createDownloadTask', { url: 'https://cdn.example.com/a.png' });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (!url.startsWith('/__wxa__/tmp')) return proxied('file-content')();
+      saved.push({ url, content: await (init!.body as Blob).text() });
+      return Response.json({ url: 'http://localhost:3000/__wxa__/tmp/saved.png' });
+    });
+
+    const { downloadTaskId } = call(apis, 'createDownloadTask', { url: 'https://cdn.example.com/a.png?v=2' });
+
     await vi.waitFor(() => expect(events.some(([, d]) => d.state === 'success')).toBe(true));
+    expect(saved).toEqual([{ url: '/__wxa__/tmp?type=png', content: 'file-content' }]);
     expect(events.at(-1)).toEqual(['onDownloadTaskStateChange', expect.objectContaining({
-      downloadTaskId, state: 'success', tempFilePath: 'blob:mock', statusCode: 200
+      downloadTaskId, state: 'success', tempFilePath: 'http://localhost:3000/__wxa__/tmp/saved.png', statusCode: 200
     })]);
   });
 });

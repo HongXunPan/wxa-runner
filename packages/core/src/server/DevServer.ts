@@ -18,11 +18,10 @@
  *   其余路径                    小程序目录下的静态资源
  */
 
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import chokidar, { FSWatcher } from 'chokidar';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { findDeveloperTicket, findRegionDataFile, resolveBaseLib, ResolvedBaseLib } from '@open-wxa/wxa-runner-extractor';
@@ -34,6 +33,7 @@ import { handleProxy } from './proxy';
 import { planHotUpdate } from './hmr';
 import { realLoginRouter, requireUsableTicket } from './realLogin';
 import { bundleSetup, collectSetupEnv, findSetupFile } from './setup';
+import { ProjectWatcher, watchProject } from './watcher';
 
 export interface DevServerOptions {
   projectPath: string;
@@ -68,8 +68,6 @@ export const DEFAULT_DEVICE: DeviceProfile = {
   platform: 'devtools'
 };
 
-const WATCH_DEBOUNCE = 120;
-
 export class DevServer {
   readonly project: MiniProgram;
   readonly builder: AppBuilder;
@@ -82,7 +80,7 @@ export class DevServer {
   private readonly app: Express;
   private server: http.Server | null = null;
   private sockets: WebSocketServer | null = null;
-  private watcher: FSWatcher | null = null;
+  private watcher: ProjectWatcher | null = null;
   private address = '';
   /** 运行时生成的临时文件（canvas 导出、拍照等），随服务器进程存在 */
   private readonly tempFiles = new Map<string, Buffer>();
@@ -338,18 +336,15 @@ export class DevServer {
   }
 
   private startWatching() {
-    let changed = new Set<string>();
-    // 新增、删除文件会改变页面/模块列表，只能整页刷新
-    let structural = false;
     // 上次编译失败时页面上显示着错误，修好后整页刷新才能清掉
     let lastBuildFailed = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const flush = async () => {
-      const files = [...changed];
+    // 项目目录下的 setup 文件不一定在小程序根目录（miniprogramRoot）里
+    const watched = [this.project.root];
+    if (this.setupFile && path.relative(this.project.root, this.setupFile).startsWith('..')) watched.push(this.setupFile);
+
+    this.watcher = watchProject(this.project.root, watched, async ({ files, structural }) => {
       const reloadOnly = structural || lastBuildFailed;
-      changed = new Set();
-      structural = false;
       this.builder.invalidate(files);
       const label = files.length > 3 ? `${files.slice(0, 3).join(', ')} 等 ${files.length} 个文件` : files.join(', ');
 
@@ -365,28 +360,6 @@ export class DevServer {
         this.logger.error(`[wxa-runner] 编译失败：\n${message}`);
         this.broadcast({ type: 'error', message });
       }
-    };
-
-    // 项目目录下的 setup 文件不一定在小程序根目录（miniprogramRoot）里
-    const watched = [this.project.root];
-    if (this.setupFile && path.relative(this.project.root, this.setupFile).startsWith('..')) watched.push(this.setupFile);
-    // 构建工具（如 uni-app 的监听构建）每次保存都会重写全部产物，只有内容真的变了才算改动。
-    // 初次扫描时记下每个代码文件的内容指纹
-    const fingerprints = new Map<string, string>();
-    let scanned = false;
-    this.watcher = chokidar.watch(watched, {
-      ignored: /(^|[/\\])(node_modules|\.git)([/\\]|$)/
-    });
-    this.watcher.on('ready', () => {
-      scanned = true;
-    });
-    this.watcher.on('all', (event, file) => {
-      const unchanged = updateFingerprint(fingerprints, file, event);
-      if (!scanned || unchanged) return;
-      if (event !== 'change') structural = true;
-      changed.add(path.relative(this.project.root, file).split(path.sep).join('/'));
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(flush, WATCH_DEBOUNCE);
     });
   }
 
@@ -396,26 +369,6 @@ export class DevServer {
       if (client.readyState === WebSocket.OPEN) client.send(data);
     });
   }
-}
-
-const FINGERPRINTED = /\.(js|mjs|ts|json|wxml|wxss|wxs)$/;
-
-/** 记录文件的内容指纹；返回 true 表示内容与上次相同。图片等其他文件不读取，一律视为有变化 */
-function updateFingerprint(fingerprints: Map<string, string>, file: string, event: string): boolean {
-  if (event === 'unlink') {
-    fingerprints.delete(file);
-    return false;
-  }
-  if ((event !== 'add' && event !== 'change') || !FINGERPRINTED.test(file)) return false;
-  let next: string;
-  try {
-    next = createHash('sha1').update(fs.readFileSync(file)).digest('hex');
-  } catch {
-    return false;
-  }
-  const previous = fingerprints.get(file);
-  fingerprints.set(file, next);
-  return previous === next;
 }
 
 function resolveSetupFile(option: string | false | undefined, projectPath: string): string | null {

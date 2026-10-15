@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   compareVersions,
   extractBaseLib,
+  listBaseLibs,
   listInstalledBaseLibs,
+  resolveBaseLib,
   selectBaseLib
 } from '../../packages/extractor/src/baselib';
 import { findDeveloperTicket, findRegionDataFile, TICKET_ENV } from '../../packages/extractor/src/devtools';
@@ -52,17 +54,63 @@ describe('基础库版本选择', () => {
     expect(selectBaseLib(installed, '3.10.1').compatible).toBe(false);
   });
 
-  it('指定的版本未安装时给出已安装列表', () => {
-    expect(() => selectBaseLib(installed, '9.9.9')).toThrow(/已安装：3\.10\.1, 3\.7\.0/);
+  it('指定的版本未安装时给出可用的版本', () => {
+    expect(() => selectBaseLib(installed, '9.9.9')).toThrow(/可用的版本：3\.10\.1, 3\.7\.0/);
   });
 
   it('没有任何兼容版本时提示下载', () => {
     expect(() => selectBaseLib(installed.filter(lib => !lib.compatible))).toThrow('请在开发者工具中下载');
   });
 
+  it('开发者工具和内置基础库都没有时，提示两种获取方式', () => {
+    expect(() => selectBaseLib([])).toThrow(/微信开发者工具.*@open-wxa\/wxa-baselib/);
+  });
+
   it('版本号逐段按数字比较', () => {
     expect(compareVersions('3.10.0', '3.9.9')).toBeGreaterThan(0);
     expect(compareVersions('3.7', '3.7.0')).toBe(0);
+  });
+});
+
+describe('内置基础库兜底', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** 开发者工具的 WeappVendor 目录，选择版本只看文件名，内容留空 */
+  const vendorWith = (...versions: string[]) => createProject(Object.fromEntries(versions.map(v => [`${v}.wxvpkg`, ''])));
+  const bundledRoot = createProject({ '3.7.0/WAService.js': 'bundled', '3.7.0/WAWebview.js': 'bundled' });
+
+  it('没装开发者工具时使用内置的 3.7.0', () => {
+    expect(selectBaseLib(listBaseLibs([], bundledRoot))).toMatchObject({ version: '3.7.0', source: 'bundled' });
+  });
+
+  it('开发者工具有同一版本时使用开发者工具的，同一版本只列出一次', () => {
+    const libs = listBaseLibs([vendorWith('3.7.0', '3.5.8')], bundledRoot);
+    expect(libs.map(lib => `${lib.version} ${lib.source}`)).toEqual(['3.7.0 devtools', '3.5.8 devtools']);
+    expect(selectBaseLib(libs).source).toBe('devtools');
+  });
+
+  it('开发者工具只有更旧的版本时，默认仍使用内置的 3.7.0；指定旧版本时使用开发者工具的', () => {
+    const libs = listBaseLibs([vendorWith('3.5.8')], bundledRoot);
+    expect(selectBaseLib(libs)).toMatchObject({ version: '3.7.0', source: 'bundled' });
+    expect(selectBaseLib(libs, '3.5.8')).toMatchObject({ version: '3.5.8', source: 'devtools' });
+  });
+
+  it('开发者工具只有高于 3.7.0 的版本时，使用内置的 3.7.0 而不是报错', () => {
+    expect(selectBaseLib(listBaseLibs([vendorWith('3.10.1')], bundledRoot))).toMatchObject({ version: '3.7.0', source: 'bundled' });
+  });
+
+  it('指定的版本哪里都没有时，列出可用的版本并标出内置的', () => {
+    expect(() => selectBaseLib(listBaseLibs([vendorWith('3.10.1')], bundledRoot), '9.9.9')).toThrow(/可用的版本：3\.10\.1, 3\.7\.0（内置）/);
+  });
+
+  it('没装开发者工具的机器上，解析出内置的 3.7.0，运行时要加载的文件都在', () => {
+    vi.stubEnv('WXA_VENDOR_DIR', createProject({}));
+    const lib = resolveBaseLib();
+    expect(lib).toMatchObject({ version: '3.7.0', source: 'bundled', compatible: true });
+    expect(fs.existsSync(path.join(lib.dir, 'WAService.js'))).toBe(true);
+    expect(fs.existsSync(path.join(lib.dir, 'WAWebview.js'))).toBe(true);
   });
 });
 

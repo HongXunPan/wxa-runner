@@ -10,11 +10,11 @@ import path from 'path';
 import { Browser, chromium, Frame, Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { createProject, hasDevtools, REPO_ROOT } from '../helpers';
+import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
 const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const ready = hasDevtools() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
+const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
 const INDEX_JS = `
 Page({

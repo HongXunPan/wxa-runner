@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { findBundledBaseLibRoot } from '../../packages/extractor/src/baselib';
 import { findRegionDataFile } from '../../packages/extractor/src/devtools';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { EXAMPLES, hasDevtools, REPO_ROOT } from '../helpers';
+import { createProject, EXAMPLES, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const ready = hasDevtools() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js'));
+const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js'));
 
 describe.skipIf(!ready)('DevServer', () => {
   let server: DevServer;
@@ -89,5 +90,34 @@ describe.skipIf(!ready)('DevServer', () => {
     expect((await get('/__baselib__/WAWebview.js')).status).toBe(200);
     expect((await get('/app.wxss')).status).toBe(200);
     expect((await get('/__wxa__/webview/app.wxss')).status).toBe(200);
+  });
+});
+
+describe.skipIf(!ready)('DevServer：没装开发者工具的机器', () => {
+  let server: DevServer;
+
+  beforeAll(async () => {
+    vi.stubEnv('WXA_VENDOR_DIR', createProject({}));
+    server = new DevServer({
+      projectPath: path.join(EXAMPLES, 'showcase'),
+      port: 0,
+      watch: false,
+      runtimeDir: RUNTIME_DIR,
+      logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
+    });
+    await server.start();
+  });
+
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await server.close();
+  });
+
+  it('用内置基础库提供逻辑层和渲染层的基础库文件', async () => {
+    const bundledDir = path.join(findBundledBaseLibRoot()!, '3.7.0');
+    for (const file of ['WAService.js', 'WAWebview.js']) {
+      const res = await fetch(`${server.url}/__baselib__/${file}`);
+      expect(await res.text()).toBe(fs.readFileSync(path.join(bundledDir, file), 'utf8'));
+    }
   });
 });

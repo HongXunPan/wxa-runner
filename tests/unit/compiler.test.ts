@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { locateCompilerBinaries } from '../../packages/compiler/src/locate';
 import { compileWxml } from '../../packages/compiler/src/wcc';
 import { compileWxss, parseWcscOutput, unescapeJsString } from '../../packages/compiler/src/wcsc';
-import { createProject, hasDevtools } from '../helpers';
+import { createProject, hasToolchain } from '../helpers';
 
 describe('wcsc 输出解析', () => {
   it('把 key=value 交替的输出拆成对象，并还原转义', () => {
@@ -18,7 +21,32 @@ describe('wcsc 输出解析', () => {
   });
 });
 
-describe.skipIf(!hasDevtools())('官方编译器', () => {
+describe('编译器定位', () => {
+  // 环境变量指定的编译器优先于其它来源
+  beforeEach(() => {
+    vi.stubEnv('WXA_WCC', '');
+    vi.stubEnv('WXA_WCSC', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('装了开发者工具时使用开发者工具的编译器', () => {
+    const devtools = createProject({ 'node_modules/wcc-exec/wcc': '', 'node_modules/wcc-exec/wcsc': '' });
+    expect(locateCompilerBinaries([devtools]).wcc).toBe(path.join(devtools, 'node_modules/wcc-exec/wcc'));
+  });
+
+  it('没装开发者工具时（如 Linux、CI），使用 miniprogram-compiler 自带的编译器，并且可以直接执行', () => {
+    const { wcc, wcsc } = locateCompilerBinaries([]);
+    for (const file of [wcc, wcsc]) {
+      expect(file).toContain(`${path.sep}miniprogram-compiler${path.sep}`);
+      expect(() => fs.accessSync(file, fs.constants.X_OK)).not.toThrow();
+    }
+  });
+});
+
+describe.skipIf(!hasToolchain())('官方编译器', () => {
   const root = createProject({
     'pages/index/index.wxml': '<wxs module="m" src="../../utils/m.wxs"/><view class="a">{{m.twice(n)}}</view><counter/>',
     'pages/index/index.wxss': '.a { padding: 20rpx; }',

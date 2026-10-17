@@ -24,7 +24,7 @@ import http from 'http';
 import path from 'path';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
-import { findDeveloperTicket, findRegionDataFile, resolveBaseLib, ResolvedBaseLib, usesIsolatedContext } from '@open-wxa/wxa-runner-extractor';
+import { findDeveloperTicket, readRegionData, resolveBaseLib, ResolvedBaseLib, usesIsolatedContext } from '@open-wxa/wxa-runner-extractor';
 import { AppBuilder, BuildResult } from '../project/AppBuilder';
 import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
@@ -279,12 +279,12 @@ export class DevServer {
     });
     app.get('/__wxa__/region/:kind', (req, res) => {
       const kind = req.params.kind;
-      const file = kind === 'districts' || kind === 'streets' ? findRegionDataFile(kind) : null;
-      if (!file) {
+      const data = kind === 'districts' || kind === 'streets' ? readRegionData(kind) : null;
+      if (!data) {
         res.status(404).end();
         return;
       }
-      res.type('text/plain; charset=utf-8').sendFile(file, { maxAge: '1d' });
+      res.type('text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=86400').send(data);
     });
 
     app.get('/__wxa__/tmp/:name', (req, res) => {

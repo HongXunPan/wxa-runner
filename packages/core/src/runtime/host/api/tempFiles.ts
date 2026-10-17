@@ -5,15 +5,26 @@
  * uploadFile 也能直接读取。
  */
 
+const TEMP_DIR = '/__wxa__/tmp';
+
 /**
  * @param type 扩展名（如 png），读取时按它返回 Content-Type
  * @throws 开发服务器拒绝保存时，带上它给出的原因（如扩展名不合法）
  */
 export async function saveTempFile(data: BodyInit, type: string): Promise<string> {
-  const res = await fetch(`/__wxa__/tmp?type=${encodeURIComponent(type)}`, { method: 'POST', body: data });
+  const res = await fetch(`${TEMP_DIR}?type=${encodeURIComponent(type)}`, { method: 'POST', body: data });
   if (!res.ok) throw new Error(await res.text());
   const { url } = await res.json();
   return url;
+}
+
+/**
+ * 临时文件的地址换成根路径（/__wxa__/tmp/…），其他地址原样返回。
+ * 根路径在页面和组件里都按开发服务器的根目录解析，指向的还是同一个文件
+ */
+export function tempFileRootPath(url: string): string {
+  const prefix = `${location.origin}${TEMP_DIR}/`;
+  return url.startsWith(prefix) ? url.slice(location.origin.length) : url;
 }
 
 /** 临时文件的扩展名：优先用原文件名的，其次按 MIME 类型（如 image/png），都看不出来时用 fallback */

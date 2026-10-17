@@ -14,6 +14,7 @@ import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
 import { createSystemApis } from './api/system';
+import { tempFileRootPath } from './api/tempFiles';
 import { createUiApis } from './api/ui';
 import { createWebViewApis } from './api/webView';
 import { PageStack } from './PageStack';
@@ -138,9 +139,10 @@ export class Host implements HostApi {
     if (kind === 'service') {
       // 不指定目标时发给所有页面：旧版 canvas 的绘制指令就是这样发的，由 canvasNumber 找到对应画布
       const targets = webviewIds?.length ? webviewIds.map(id => this.pages.get(Number(id))) : this.livePages();
+      const message = event === 'canvasActionsChanged' ? withDrawableImages(data) : data;
       for (const page of targets) {
         page?.dispatch((bridge, target) => {
-          const payload = cloneInto(target, data);
+          const payload = cloneInto(target, message);
           queueMicrotask(() => bridge.__dispatchSub(event, payload, 0));
         });
       }
@@ -471,6 +473,27 @@ export class Host implements HostApi {
 export function cloneInto<T>(win: Window, value: T): T {
   if (value === undefined) return value;
   return (win as any).JSON.parse(JSON.stringify(value));
+}
+
+/**
+ * 旧版 canvas 的绘制指令里，drawImage 用到的临时文件换成根路径。基础库的网页实现把 http(s) 地址
+ * 都当成网络图片直接跳过（只放行开发者工具的 http://tmp/ 等），不报错，画布上什么也没有
+ */
+function withDrawableImages(message: any): unknown {
+  const actions = message?.data?.actions;
+  if (!Array.isArray(actions)) return message;
+  return {
+    ...message,
+    data: {
+      ...message.data,
+      actions: actions.map(action => {
+        const [src, ...rest] = action.data ?? [];
+        return action.method === 'drawImage' && typeof src === 'string'
+          ? { ...action, data: [tempFileRootPath(src), ...rest] }
+          : action;
+      })
+    }
+  };
 }
 
 function stripHtml(path: string): string {

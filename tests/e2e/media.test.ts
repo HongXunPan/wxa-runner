@@ -2,7 +2,7 @@
  * 端到端：画布与相机
  *
  * 旧版 canvas（canvas-id）的绘制指令由逻辑层发出、不指定目标页面；
- * 导出图片和拍照得到的临时文件要能直接作为 image 的 src 显示。
+ * 导出图片和拍照得到的临时文件要能直接作为 image 的 src 显示，也要能画到旧版 canvas 上。
  */
 
 import { afterAll, beforeAll, describe, it } from 'vitest';
@@ -58,6 +58,62 @@ Page({
 });
 `;
 
+// 先导出一张纯蓝的临时文件，再分别画到页面里和组件里的旧版画布上，读回中心像素
+const REDRAW_WXML = `
+<canvas canvas-id="source" style="width:40px;height:40px"></canvas>
+<canvas canvas-id="page-redraw" style="width:40px;height:40px"></canvas>
+<painter src="{{sourceFile}}" bindpainted="onComponentPainted"></painter>
+<view id="page-pixel">{{pagePixel}}</view>
+<view id="component-pixel">{{componentPixel}}</view>
+`;
+
+const REDRAW_JS = `
+Page({
+  data: { sourceFile: '', pagePixel: '', componentPixel: '' },
+  onReady() {
+    const source = wx.createCanvasContext('source', this);
+    source.setFillStyle('#0000ff');
+    source.fillRect(0, 0, 40, 40);
+    source.draw(false, () => wx.canvasToTempFilePath({
+      canvasId: 'source',
+      success: res => {
+        this.setData({ sourceFile: res.tempFilePath });
+        this.paint(res.tempFilePath);
+      },
+      fail: err => this.setData({ pagePixel: 'export fail ' + err.errMsg })
+    }, this));
+  },
+  paint(src) {
+    const ctx = wx.createCanvasContext('page-redraw', this);
+    ctx.drawImage(src, 0, 0, 40, 40);
+    ctx.draw(false, () => wx.canvasGetImageData({
+      canvasId: 'page-redraw', x: 20, y: 20, width: 1, height: 1,
+      success: res => this.setData({ pagePixel: Array.from(res.data).join(',') }),
+      fail: err => this.setData({ pagePixel: err.errMsg })
+    }, this));
+  },
+  onComponentPainted(e) { this.setData({ componentPixel: e.detail.pixel }); }
+});
+`;
+
+const PAINTER_JS = `
+Component({
+  properties: { src: { type: String, value: '', observer: 'paint' } },
+  methods: {
+    paint(src) {
+      if (!src) return;
+      const ctx = wx.createCanvasContext('painter', this);
+      ctx.drawImage(src, 0, 0, 40, 40);
+      ctx.draw(false, () => wx.canvasGetImageData({
+        canvasId: 'painter', x: 20, y: 20, width: 1, height: 1,
+        success: res => this.triggerEvent('painted', { pixel: Array.from(res.data).join(',') }),
+        fail: err => this.triggerEvent('painted', { pixel: err.errMsg })
+      }, this));
+    }
+  }
+});
+`;
+
 const CAMERA_WXML = `
 <camera bindinitdone="onCameraReady" binderror="onCameraError" style="width:200px;height:150px"></camera>
 <button id="shoot" bindtap="shoot">拍照</button>
@@ -88,10 +144,16 @@ describe.skipIf(!e2eReady)('画布与相机', () => {
 
   beforeAll(async () => {
     runner = await startRunner({
-      'app.json': { pages: ['pages/canvas/canvas', 'pages/camera/camera'] },
+      'app.json': { pages: ['pages/canvas/canvas', 'pages/redraw/redraw', 'pages/camera/camera'] },
       'pages/canvas/canvas.json': {},
       'pages/canvas/canvas.wxml': CANVAS_WXML,
       'pages/canvas/canvas.js': CANVAS_JS,
+      'pages/redraw/redraw.json': { usingComponents: { painter: '/components/painter/painter' } },
+      'pages/redraw/redraw.wxml': REDRAW_WXML,
+      'pages/redraw/redraw.js': REDRAW_JS,
+      'components/painter/painter.json': { component: true },
+      'components/painter/painter.wxml': '<canvas canvas-id="painter" style="width:40px;height:40px"></canvas>',
+      'components/painter/painter.js': PAINTER_JS,
       'pages/camera/camera.json': {},
       'pages/camera/camera.wxml': CAMERA_WXML,
       'pages/camera/camera.js': CAMERA_JS
@@ -114,6 +176,12 @@ describe.skipIf(!e2eReady)('画布与相机', () => {
     const frame = await runner.open('/?path=pages/canvas/canvas');
     await expectText(frame, '#exported', /^loaded [1-9]\d*x[1-9]\d*$/);
     await expectText(frame, '#legacy-exported', /^loaded [1-9]\d*x[1-9]\d*$/);
+  });
+
+  it('页面和组件里的 canvas-id 画布画上临时文件里的图片后，读回的像素是图片的颜色', async () => {
+    const frame = await runner.open('/?path=pages/redraw/redraw');
+    await expectText(frame, '#page-pixel', '0,0,255,255');
+    await expectText(frame, '#component-pixel', '0,0,255,255');
   });
 
   it('用户拍照后得到的照片可以直接作为 image 的 src 显示', async () => {

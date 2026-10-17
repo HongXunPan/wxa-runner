@@ -241,9 +241,10 @@ describe('真实登录（--real-login）', () => {
   function invoke(api: string, response: Response) {
     const fetchMock = vi.fn(async (..._args: unknown[]) => response);
     vi.stubGlobal('fetch', fetchMock);
+    const onRealLoginFail = vi.fn();
     const registry = new ApiRegistry();
-    registry.register(createMiscApis('wx1', { realLogin: true }));
-    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }), fetchMock };
+    registry.register(createMiscApis('wx1', { realLogin: true, onRealLoginFail }));
+    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }), fetchMock, onRealLoginFail };
   }
 
   const json = (body: object, status = 200) => new Response(JSON.stringify(body), { status });
@@ -265,6 +266,16 @@ describe('真实登录（--real-login）', () => {
   it('开发服务器给出的失败原因原样作为 fail 消息，不退回模拟数据', async () => {
     const { result } = invoke('login', json({ error: '微信开发者工具的登录态已过期' }, 500));
     expect(await result).toEqual({ errMsg: 'login:fail 微信开发者工具的登录态已过期' });
+  });
+
+  it('失败时把 API 名称和原因交给宿主页面提示开发者，成功时不提示', async () => {
+    const failed = invoke('getPhoneNumber', json({ error: '微信开发者工具的登录态已过期' }, 500));
+    await failed.result;
+    expect(failed.onRealLoginFail).toHaveBeenCalledWith('getPhoneNumber', '微信开发者工具的登录态已过期');
+
+    const succeeded = invoke('login', json({ code: 'real-code' }));
+    await succeeded.result;
+    expect(succeeded.onRealLoginFail).not.toHaveBeenCalled();
   });
 
   it('响应不是 JSON 时（如代理返回的错误页）fail 消息带上状态码', async () => {

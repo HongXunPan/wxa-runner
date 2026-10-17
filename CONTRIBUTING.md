@@ -42,22 +42,27 @@ node packages/cli/bin/wxa-runner.js dev examples/showcase --open   # 用源码�
 
 ## 发布
 
-5 个包版本号保持一致，推送 `v*` tag 时由 [.github/workflows/release.yml](./.github/workflows/release.yml) 发布到 npm：
+5 个包版本号保持一致。版本号和 [CHANGELOG.md](./CHANGELOG.md) 由 [release-please](https://github.com/googleapis/release-please)
+根据提交记录生成，[.github/workflows/release.yml](./.github/workflows/release.yml) 负责发布到 npm：
 
-```bash
-pnpm -r --include-workspace-root exec npm pkg set version=0.2.0   # 改全部 package.json 的版本号
-git commit -am "chore: 0.2.0" && git push
-git tag v0.2.0 && git push origin v0.2.0
-```
+1. 提交信息按 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 写（本仓库一直这样写）：`feat:` 升次版本号，
+   `fix:`、`perf:` 升修订号；0.x 阶段破坏性改动（`feat!:`，或正文里写 `BREAKING CHANGE:`）也只升次版本号。
+   `test:`、`docs:`、`chore:`、`ci:`、`refactor:` 不进 CHANGELOG，只有这些提交时不发版
+2. 推送到 main 后，release.yml 开一个（或更新已有的）发布 PR「chore: release x.y.z」，6 个 package.json 的版本号和 CHANGELOG
+   都已改好。合并前可以直接在这个 PR 里修改 CHANGELOG 的措辞，想攒几个改动一起发就先不合并
+3. 合并发布 PR 后，release.yml 打 tag `vx.y.z`、建 GitHub Release，跑一遍 CI，再执行 `node scripts/release.mjs` 发布到 npm
 
-- release.yml 先跑一遍 CI，再执行 `node scripts/release.mjs`：打包、在新目录里安装试跑、按依赖顺序发布。
-  tag 与版本号不一致时直接失败；npm 上已有的版本会跳过，中途失败后重跑这个 workflow 即可
-- 认证用 npm 的 Trusted Publishing，不需要 token：每个包在 npmjs.com 的设置里登记了本仓库的 `release.yml`
-- 版本号带 `-`（如 `0.2.0-beta.1`）时发布到 `next` 标签，`npm i wxa-runner` 装到的版本不变
-- 新增包时，把目录加到 `scripts/release.mjs` 的 `PACKAGE_DIRS`（被依赖的排在前面），package.json 照着已有的包写上
-  `repository`、`publishConfig` 等字段。Trusted Publishing 只能给 npm 上已有的包配置，所以新包的第一个版本要在本机
-  `npm login` 后执行 `node scripts/release.mjs` 手动发布，再到 npmjs.com 为它登记 `release.yml`。登记后 2 天内要由
-  release.yml 成功发布一次，否则登记失效
+- release.mjs：打包、在新目录里安装试跑、按依赖顺序发布。版本号与 tag 不一致时直接失败；npm 上已有的版本会跳过，
+  中途失败后在 Actions 里重跑失败的 job 即可
+- 要指定版本号（如正式进入 `1.0.0`），在提交正文里加一行 `Release-As: 1.0.0`。版本号带 `-`（如 `0.3.0-beta.1`）时
+  发布到 `next` 标签，`npm i wxa-runner` 装到的版本不变
+- 发布 PR 由 GitHub Actions 自带的 token 创建，GitHub 不会为它触发 CI，PR 上看不到检查结果；发布前 release.yml 会先跑一遍完整的 CI。
+  仓库设置里要勾选 Settings → Actions → General →「Allow GitHub Actions to create and approve pull requests」，否则开不了发布 PR
+- 认证用 npm 的 Trusted Publishing，不需要 token：每个包在 npmjs.com 的设置里登记了本仓库的 `release.yml`，改文件名要同步改登记
+- 新增包时，把目录加到 `scripts/release.mjs` 的 `PACKAGE_DIRS`（被依赖的排在前面）和 `release-please-config.json` 的
+  `extra-files`，package.json 照着已有的包写上 `repository`、`publishConfig` 等字段。Trusted Publishing 只能给 npm 上已有的包配置，
+  所以新包的第一个版本要在本机 `npm login` 后执行 `node scripts/release.mjs` 手动发布，再到 npmjs.com 为它登记 `release.yml`。
+  登记后 2 天内要由 release.yml 成功发布一次，否则登记失效
 
 ## 工作原理
 

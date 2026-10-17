@@ -48,14 +48,14 @@ function readPackages() {
   });
 }
 
-/** 各包版本号必须一致；由 tag 触发时还必须与 tag 一致 */
+/** 各包版本号必须一致；release.yml 发布时还必须与 release-please 打的 tag（RELEASE_TAG）一致 */
 function checkVersion(packages) {
   const versions = new Set(packages.map(pkg => pkg.version));
   if (versions.size > 1) {
     throw new Error(`各包版本号不一致：${packages.map(pkg => `${pkg.name}@${pkg.version}`).join('、')}`);
   }
   const [version] = versions;
-  const tag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : undefined;
+  const tag = process.env.RELEASE_TAG;
   if (tag && tag !== `v${version}`) throw new Error(`tag ${tag} 与包的版本号 ${version} 不一致`);
   return version;
 }

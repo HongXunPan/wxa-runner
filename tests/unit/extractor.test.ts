@@ -11,9 +11,9 @@ import {
   selectBaseLib,
   usesIsolatedContext
 } from '../../packages/extractor/src/baselib';
-import { findDeveloperTicket, findRegionDataFile, TICKET_ENV } from '../../packages/extractor/src/devtools';
+import { findDeveloperTicket, readRegionData, TICKET_ENV } from '../../packages/extractor/src/devtools';
 import { readWxvpkgFile, readWxvpkgIndex } from '../../packages/extractor/src/wxvpkg';
-import { createProject, packWxvpkg } from '../helpers';
+import { createProject, packAsar, packWxvpkg } from '../helpers';
 
 describe('wxvpkg 解包', () => {
   it('读出包内每个文件的名称和内容', () => {
@@ -168,15 +168,30 @@ describe('行政区划数据', () => {
     vi.unstubAllEnvs();
   });
 
-  it('从开发者工具安装目录找到省市区和含街道的两份数据', () => {
+  const DISTRICTS = '440000\t广东省 0';
+  const STREETS = '440000000\t广东省\t000000';
+
+  it('从开发者工具安装目录读到省市区和含街道的两份数据', () => {
     const devtools = createProject({
       'package.nw/package.json': '{}',
-      'package.nw/js/libs/region_sub_strict_third': '440000\t广东省 0',
-      'package.nw/js/libs/region_sub_strict': '440000000\t广东省\t000000'
+      'package.nw/js/libs/region_sub_strict_third': DISTRICTS,
+      'package.nw/js/libs/region_sub_strict': STREETS
     });
     vi.stubEnv('WXA_DEVTOOLS_PATH', devtools);
-    expect(findRegionDataFile('districts')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict_third'));
-    expect(findRegionDataFile('streets')).toBe(path.join(devtools, 'package.nw/js/libs/region_sub_strict'));
+    expect(readRegionData('districts')?.toString()).toBe(DISTRICTS);
+    expect(readRegionData('streets')?.toString()).toBe(STREETS);
+  });
+
+  it('新版开发者工具（Electron）把数据打包在 app.asar 里，同样读得到', () => {
+    const devtools = createProject({ 'Contents/Resources/app.asar.unpacked/package.json': '{}' });
+    fs.writeFileSync(path.join(devtools, 'Contents/Resources/app.asar'), packAsar({
+      'package.json': '{}',
+      'js/libs/region_sub_strict_third': DISTRICTS,
+      'js/libs/region_sub_strict': STREETS
+    }));
+    vi.stubEnv('WXA_DEVTOOLS_PATH', devtools);
+    expect(readRegionData('districts')?.toString()).toBe(DISTRICTS);
+    expect(readRegionData('streets')?.toString()).toBe(STREETS);
   });
 });
 

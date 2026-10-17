@@ -47,6 +47,34 @@ export function packWxvpkg(files: Record<string, string>): Buffer {
   return Buffer.concat([header, index, ...entries.map(entry => entry.data)]);
 }
 
+/** 按 Electron 的 .asar 格式打包（新版开发者工具的 app.asar），路径用 / 分隔，如 js/libs/a */
+export function packAsar(files: Record<string, string>): Buffer {
+  type Dir = { files: Record<string, Dir | { size: number; offset: string }> };
+  const root: Dir = { files: {} };
+  const contents: Buffer[] = [];
+  let offset = 0;
+  for (const [file, content] of Object.entries(files)) {
+    const data = Buffer.from(content, 'utf8');
+    const parts = file.split('/');
+    let dir = root;
+    for (const part of parts.slice(0, -1)) dir = (dir.files[part] ??= { files: {} }) as Dir;
+    dir.files[parts[parts.length - 1]] = { size: data.length, offset: String(offset) };
+    contents.push(data);
+    offset += data.length;
+  }
+
+  // 两段 pickle：[4][文件头长度]，[内容长度][JSON 长度][JSON，补齐到 4 字节]；文件内容紧跟其后
+  const json = Buffer.from(JSON.stringify(root), 'utf8');
+  const payload = Math.ceil((4 + json.length) / 4) * 4;
+  const header = Buffer.alloc(12 + payload);
+  header.writeUInt32LE(4, 0);
+  header.writeUInt32LE(payload + 4, 4);
+  header.writeUInt32LE(payload, 8);
+  header.writeUInt32LE(json.length, 12);
+  json.copy(header, 16);
+  return Buffer.concat([header, ...contents]);
+}
+
 /** 编译器和兼容的基础库是否都找得到（开发者工具或内置基础库），依赖它们的测试在没有时跳过 */
 export function hasToolchain(): boolean {
   try {

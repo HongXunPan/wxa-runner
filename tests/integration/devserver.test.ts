@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { findBundledBaseLibRoot } from '../../packages/extractor/src/baselib';
-import { findRegionDataFile } from '../../packages/extractor/src/devtools';
+import { readRegionData } from '../../packages/extractor/src/devtools';
 import { DevServer } from '../../packages/core/src/server/DevServer';
 import { createFakeVendorDir, FAKE_BASELIBS } from '../fakeBaseLib';
 import { createProject, EXAMPLES, hasToolchain, REPO_ROOT } from '../helpers';
@@ -107,7 +107,7 @@ describe.skipIf(!ready)('DevServer', () => {
     expect((await fetch(url, { method: 'DELETE' })).status).toBe(404);
   });
 
-  it.skipIf(!findRegionDataFile('districts'))('地区选择器用的行政区划数据取自本机开发者工具', async () => {
+  it.skipIf(!readRegionData('districts'))('地区选择器用的行政区划数据取自本机开发者工具', async () => {
     const districts = await get('/__wxa__/region/districts');
     expect(districts.headers.get('content-type')).toContain('text/plain');
     expect(await districts.text()).toContain('海珠区');

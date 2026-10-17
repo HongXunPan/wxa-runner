@@ -1,42 +1,49 @@
 /**
  * 定位本机微信开发者工具的安装目录和用户数据目录
  *
- * 基础库（WeappVendor/*.wxvpkg）在用户数据目录，编译器（wcc/wcsc）在安装目录。
+ * 基础库（WeappVendor/*.wxvpkg）、登录态在用户数据目录，编译器（wcc/wcsc）、行政区划数据在安装目录。
  * 两者都可以用环境变量覆盖，便于 CI 或非标准安装位置。
  */
 
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { readAsarFile } from './asar';
 
-/** 安装目录下的 package.nw（或 Windows 的 code/package.nw） */
+/**
+ * 安装目录里放程序文件的目录：旧版是 package.nw；新版（Electron）把大部分文件打包在 app.asar，
+ * 编译器等要直接执行的文件解包在旁边的 app.asar.unpacked
+ */
+const PACKAGE_LAYOUTS = [
+  'Contents/Resources/package.nw',
+  'Contents/Resources/app.asar.unpacked',
+  'code/package.nw',
+  'resources/app.asar.unpacked',
+  'package.nw'
+];
+
+/** 开发者工具放程序文件的目录（package.nw 或 app.asar.unpacked），编译器在里面的 node_modules/wcc-exec */
 export function findDevtoolsPackageDirs(): string[] {
+  const roots: string[] = [];
   const candidates: string[] = [];
 
   if (process.env.WXA_DEVTOOLS_PATH) {
-    const base = process.env.WXA_DEVTOOLS_PATH;
-    candidates.push(
-      path.join(base, 'Contents/Resources/package.nw'),
-      path.join(base, 'code/package.nw'),
-      path.join(base, 'package.nw'),
-      base
-    );
+    roots.push(process.env.WXA_DEVTOOLS_PATH);
+    // 也可以直接指到 package.nw 或 app.asar.unpacked
+    candidates.push(process.env.WXA_DEVTOOLS_PATH);
   }
-
   if (process.platform === 'darwin') {
-    candidates.push(
-      '/Applications/wechatwebdevtools.app/Contents/Resources/package.nw',
-      path.join(os.homedir(), 'Applications/wechatwebdevtools.app/Contents/Resources/package.nw')
-    );
+    roots.push('/Applications/wechatwebdevtools.app', path.join(os.homedir(), 'Applications/wechatwebdevtools.app'));
   } else if (process.platform === 'win32') {
     for (const programFiles of [process.env['ProgramFiles(x86)'], process.env.ProgramFiles]) {
-      if (programFiles) {
-        candidates.push(path.join(programFiles, 'Tencent', '微信web开发者工具', 'code', 'package.nw'));
-      }
+      if (programFiles) roots.push(path.join(programFiles, 'Tencent', '微信web开发者工具'));
     }
   }
+  for (const root of roots) {
+    candidates.push(...PACKAGE_LAYOUTS.map(layout => path.join(root, layout)));
+  }
 
-  return candidates.filter(dir => fs.existsSync(path.join(dir, 'package.json')));
+  return [...new Set(candidates)].filter(dir => fs.existsSync(path.join(dir, 'package.json')));
 }
 
 const REGION_DATA_FILES = {
@@ -48,12 +55,17 @@ export type RegionDataKind = keyof typeof REGION_DATA_FILES;
 
 /**
  * 开发者工具自带的行政区划数据，picker 的地区选择器用它：districts 到区县三级，streets 到街道四级。
- * 找不到时返回 null
+ * 旧版在 package.nw/js/libs 下，新版打包在 app.asar 里。找不到时返回 null
  */
-export function findRegionDataFile(kind: RegionDataKind): string | null {
+export function readRegionData(kind: RegionDataKind): Buffer | null {
+  const file = `js/libs/${REGION_DATA_FILES[kind]}`;
   for (const dir of findDevtoolsPackageDirs()) {
-    const file = path.join(dir, 'js/libs', REGION_DATA_FILES[kind]);
-    if (fs.existsSync(file)) return file;
+    if (fs.existsSync(path.join(dir, file))) return fs.readFileSync(path.join(dir, file));
+    const archive = dir.replace(/\.asar\.unpacked$/, '.asar');
+    if (archive !== dir && fs.existsSync(archive)) {
+      const data = readAsarFile(archive, file);
+      if (data) return data;
+    }
   }
   return null;
 }

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locateCompilerBinaries } from '../../packages/compiler/src/locate';
+import { findDevtoolsPackageDirs } from '../../packages/extractor/src/devtools';
 import { compileWxml } from '../../packages/compiler/src/wcc';
 import { compileWxss, parseWcscOutput, unescapeJsString } from '../../packages/compiler/src/wcsc';
 import { createProject, hasToolchain } from '../helpers';
@@ -35,6 +36,17 @@ describe('编译器定位', () => {
   it('装了开发者工具时使用开发者工具的编译器', () => {
     const devtools = createProject({ 'node_modules/wcc-exec/wcc': '', 'node_modules/wcc-exec/wcsc': '' });
     expect(locateCompilerBinaries([devtools]).wcc).toBe(path.join(devtools, 'node_modules/wcc-exec/wcc'));
+  });
+
+  it('新版开发者工具（Electron）的编译器在 app.asar.unpacked 里，同样使用它', () => {
+    const app = createProject({
+      'Contents/Resources/app.asar.unpacked/package.json': '{}',
+      'Contents/Resources/app.asar.unpacked/node_modules/wcc-exec/wcc': '',
+      'Contents/Resources/app.asar.unpacked/node_modules/wcc-exec/wcsc': ''
+    });
+    vi.stubEnv('WXA_DEVTOOLS_PATH', app);
+    expect(locateCompilerBinaries(findDevtoolsPackageDirs()).wcc)
+      .toBe(path.join(app, 'Contents/Resources/app.asar.unpacked/node_modules/wcc-exec/wcc'));
   });
 
   it('没装开发者工具时（如 Linux、CI），使用 miniprogram-compiler 自带的编译器，并且可以直接执行', () => {

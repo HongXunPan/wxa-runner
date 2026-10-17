@@ -152,7 +152,11 @@ wxa-runner/
 | 资源 | 位置（macOS） | 说明 |
 | --- | --- | --- |
 | 基础库 | `~/Library/Application Support/微信开发者工具/<id>/WeappVendor/<版本>.wxvpkg` | 开发者工具按需下载的各版本基础库 |
-| 编译器 | `/Applications/wechatwebdevtools.app/Contents/Resources/package.nw/node_modules/wcc-exec/{wcc,wcsc}` | 命令行版本，x86_64 + arm64 通用二进制 |
+| 编译器 | `/Applications/wechatwebdevtools.app/Contents/Resources/<程序目录>/node_modules/wcc-exec/{wcc,wcsc}` | 命令行版本，x86_64 + arm64 通用二进制 |
+| 行政区划数据 | `<程序目录>/js/libs/region_sub_strict*`，新版在 `app.asar` 里 | 地区选择器用，见「原生组件」 |
+
+程序目录：旧版开发者工具是 `package.nw`；新版（2.02 起，Electron）把大部分文件打包在 `app.asar`，编译器等要直接执行的文件解包在
+`app.asar.unpacked`。两种都支持，行政区划数据直接从 `app.asar` 里读出（读法见 `wxa-runner-extractor` 的 `asar.ts`）。
 
 `.wxvpkg` 是一个简单的打包格式：`0xBE` 魔数 + 文件索引（名称、偏移、长度，大端序）+ 文件内容。
 `wxa-runner-extractor` 解析它，把选定的版本解包到 `~/.wxa-runner/baselib/<版本>/` 并缓存。
@@ -352,7 +356,7 @@ navigateTo(url)
 - **选择器**：基础库把各列的选项文字交给宿主，宿主从底部弹出选择器，按约定格式返回用户的选择。
   日期的天数随年月变化、start/end 限制、省市区逐级联动在 `api/picker.ts` 里实现，弹层（`ui/Picker.ts`）只负责显示列。
   多列选择器打开期间用户换列时，向渲染层派发 `onMultiPickerViewChange`，页面改了 range 后基础库调 `updateMultiPickerView` 换掉那一列。
-  地区选择器的行政区划数据取自本机开发者工具（`js/libs/region_sub_strict*`），和基础库一样不随项目分发
+  地区选择器的行政区划数据取自本机开发者工具（`js/libs/region_sub_strict*`，新版在 `app.asar` 里），和基础库一样不随项目分发
 - **web-view**：网页放在所在页面渲染层里的 iframe 中，跟着页面显示、隐藏和关闭。设置了 X-Frame-Options 或
   CSP frame-ancestors 的网站不允许被嵌入，显示不出来；网页里的 `wx.miniProgram` 接口不可用。
   网页内自己跳转时，同源网页报告新地址并触发 load，跨域网页读不到地址就不报；iframe 加载失败没有事件，binderror 不会触发。

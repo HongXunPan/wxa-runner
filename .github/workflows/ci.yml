@@ -9,6 +9,34 @@ on:
   workflow_call:
 
 jobs:
+  # PR 里的提交信息和分支名要符合规范（本地的 commit-msg、pre-push hook 可以 --no-verify 跳过，这里兜底）
+  conventions:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+      # fork 来的 PR 不管分支名
+      - if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: node scripts/check-branch-name.mjs "$BRANCH"
+
   test:
     # Linux 上没有微信开发者工具：编译器用 miniprogram-compiler 的 Linux 版，基础库用 @open-wxa/wxa-baselib
     runs-on: ubuntu-latest

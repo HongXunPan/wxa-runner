@@ -40,12 +40,33 @@ node packages/cli/bin/wxa-runner.js dev examples/showcase --open   # 用源码�
 最后用 `node scripts/release.mjs --dry-run` 打包全部 npm 包，像外部用户一样在新目录里用 npm 安装，确认
 `wxa-runner dev` 能启动示例项目、用上内置基础库和 miniprogram-compiler。
 
+## 提交与分支
+
+提交信息按 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 写，如 `fix: 没装开发者工具时偶发 wcc 编译崩溃`；
+分支名用「类型/短横线描述」，如 `fix/wcc-split`。两者的类型相同：
+
+| 类型 | 用于 |
+| --- | --- |
+| `feat` | 新功能 |
+| `fix` | 修复问题 |
+| `perf` | 性能优化 |
+| `refactor` | 不改变行为的重构 |
+| `docs` / `test` | 文档 / 测试 |
+| `ci` / `build` / `chore` / `style` | CI、构建、杂项、代码格式 |
+| `revert` | 回退 |
+
+- `pnpm install` 时会装上 git hooks（[husky](https://typicode.github.io/husky/)）：提交时用 [commitlint](https://commitlint.js.org/)
+  检查提交信息，推送时检查分支名，不符合就拒绝。规则在 `commitlint.config.mjs` 和 `scripts/check-branch-name.mjs`
+- 描述用中文即可，可以以 README、Playwright 等英文专有名词开头；标题和正文每行不超过 100 个字符
+- hook 能用 `--no-verify` 跳过，但 PR 上的 CI 会再检查一遍提交信息和分支名
+- 类型决定发不发版、版本号升哪一位，见下文「发布」
+
 ## 发布
 
 5 个包版本号保持一致。版本号和 [CHANGELOG.md](./CHANGELOG.md) 由 [release-please](https://github.com/googleapis/release-please)
 根据提交记录生成，[.github/workflows/release.yml](./.github/workflows/release.yml) 负责发布到 npm：
 
-1. 提交信息按 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 写（本仓库一直这样写）：`feat:` 升次版本号，
+1. 提交信息按上面「提交与分支」的规范写：`feat:` 升次版本号，
    `fix:`、`perf:` 升修订号；0.x 阶段破坏性改动（`feat!:`，或正文里写 `BREAKING CHANGE:`）也只升次版本号。
    `test:`、`docs:`、`chore:`、`ci:`、`refactor:` 不进 CHANGELOG，只有这些提交时不发版
 2. 推送到 main 后，release.yml 开一个（或更新已有的）发布 PR「chore: release x.y.z」，6 个 package.json 的版本号和 CHANGELOG

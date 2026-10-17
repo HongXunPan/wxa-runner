@@ -4,6 +4,8 @@
  * 基础库 3.x 的协议是「创建任务同步返回 taskId，结果通过 on<Type>TaskStateChange 事件推送」。
  * HTTP 请求经开发服务器的 /__wxa__/proxy 转发：既绕开 CORS，也能携带浏览器禁止设置的
  * cookie / referer 等请求头。
+ *
+ * 只发出小程序自己的请求：基础库自己的请求（数据上报、配置拉取等）见 rejectBaseLibInternal。
  */
 
 import type { MockRequest } from '../../../setup';
@@ -191,19 +193,35 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     return ok(api);
   };
 
-  return {
+  const createTask: Record<string, ApiHandler> = {
     createRequestTask,
     createRequestTaskAsync: createRequestTask,
-    operateRequestTask: args => abortTask(args, 'requestTaskId'),
     createDownloadTask,
     createDownloadTaskAsync: createDownloadTask,
-    operateDownloadTask: args => abortTask(args, 'downloadTaskId'),
     createUploadTask,
     createUploadTaskAsync: createUploadTask,
+    createSocketTask
+  };
+
+  return {
+    ...Object.fromEntries(Object.entries(createTask).map(([api, handler]) => [api, rejectBaseLibInternal(handler)])),
+    operateRequestTask: args => abortTask(args, 'requestTaskId'),
+    operateDownloadTask: args => abortTask(args, 'downloadTaskId'),
     operateUploadTask: args => abortTask(args, 'uploadTaskId'),
-    createSocketTask,
     operateSocketTask
   };
+}
+
+/**
+ * 基础库自己的网络请求（数据上报、配置拉取等）直接按失败返回：不发往网络，也不记入请求记录
+ *
+ * 它们连的是微信后台，与被测的小程序无关，测试和 CI 里不该因此产生对外请求。基础库通过
+ * _requestSkipCheckDomain 一类内部接口发出，带 __skipDomainCheck__ 标记；小程序的 wx.request 不带
+ */
+function rejectBaseLibInternal(handler: ApiHandler): ApiHandler {
+  return (args, context) => (args?.__skipDomainCheck__ === true
+    ? fail(context.api, '基础库内部的网络请求，wxa-runner 不发出')
+    : handler(args, context));
 }
 
 export async function proxyFetch(

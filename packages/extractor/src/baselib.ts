@@ -13,11 +13,16 @@ import { findVendorDirs } from './devtools';
 import { readWxvpkgFile, readWxvpkgIndex } from './wxvpkg';
 
 /**
- * 能在单个逻辑层上下文中运行的最高版本。
- * 3.7.1 起基础库默认把业务代码放进由原生 WeixinJSContext 创建的隔离上下文，
- * 运行时还没有模拟这一层。
+ * 已验证的最高版本：不指定版本时只在这个范围里选，指定更高的版本照常运行，但会警告
  */
 export const MAX_COMPATIBLE_VERSION = '3.7.0';
+
+/**
+ * 从这个版本起，逻辑层分主上下文和子上下文：业务代码放进由原生 WeixinJSContext 创建的
+ * 隔离上下文（3.8 起 WAService.js 只是占位），运行时按此切换加载方式，见 core/runtime/context.ts。
+ * 与 MAX_COMPATIBLE_VERSION 无关：提高已验证的范围不改变某个版本的结构
+ */
+export const ISOLATED_CONTEXT_SINCE = '3.7.1';
 
 export const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.wxa-runner', 'baselib');
 
@@ -55,6 +60,10 @@ export function compareVersions(a: string, b: string): number {
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+export function usesIsolatedContext(version: string): boolean {
+  return compareVersions(version, ISOLATED_CONTEXT_SINCE) >= 0;
 }
 
 export function isCompatibleVersion(version: string): boolean {
@@ -161,7 +170,8 @@ export function extractBaseLib(lib: InstalledBaseLib, cacheDir = DEFAULT_CACHE_D
   return { source: 'devtools', version: lib.version, dir, compatible: lib.compatible };
 }
 
+/** 没指定版本时用环境变量 WXA_BASELIB 指定的版本，如 WXA_BASELIB=3.8.8 pnpm test 在这个版本上跑全部测试 */
 export function resolveBaseLib(options: { version?: string; cacheDir?: string } = {}): ResolvedBaseLib {
-  const lib = selectBaseLib(listBaseLibs(), options.version);
+  const lib = selectBaseLib(listBaseLibs(), options.version || process.env.WXA_BASELIB || undefined);
   return lib.source === 'bundled' ? lib : extractBaseLib(lib, options.cacheDir);
 }

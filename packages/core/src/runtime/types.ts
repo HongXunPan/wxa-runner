@@ -20,6 +20,8 @@ export type InvokeCallback = (result: Record<string, unknown>) => void;
 /** 宿主暴露给 iframe 的接口（window.parent.__wxaHost） */
 export interface HostApi {
   registerFrame(kind: FrameKind, win: Window, bridge: FrameBridge, webviewId: number): void;
+  /** 新版基础库：业务代码所在的子上下文，App / Page / wx 在它上面；销毁时为 null */
+  registerAppContext(win: Window | null): void;
   invoke(kind: FrameKind, win: Window, api: string, args: unknown, callback?: InvokeCallback): void;
   publish(kind: FrameKind, win: Window, event: string, data: unknown, webviewIds?: number[]): void;
   frameLoaded(kind: FrameKind, webviewId: number): void;

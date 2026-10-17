@@ -29,20 +29,40 @@ function enableHotUpdate(hot: boolean): string {
     : '';
 }
 
+/**
+ * isolated：新版基础库（3.7.1 起）。逻辑层 iframe 只是主上下文，业务代码由基础库通过 WeixinJSContext
+ * 放进子上下文执行（见 runtime/context.ts），逻辑层就绪的通知也由那边发出
+ */
 export function appserviceHtml(
   build: BuildResult,
   launch: { path: string; query: Record<string, string> },
-  options: { hot: boolean }
+  options: { hot: boolean; isolated?: boolean }
 ): string {
   const wxConfig = {
     ...build.wxConfig,
-    appLaunchInfo: { scene: 1001, path: launch.path, query: launch.query }
+    appLaunchInfo: { scene: 1001, path: launch.path, query: launch.query },
+    ...(options.isolated ? { isIsolateContext: true } : {})
   };
   const v = build.version;
-  const modules = build.modules
-    .map(id => `<script src="/__wxa__/module/${encodeURI(id)}?v=${v}"></script>`)
-    .join('\n');
+  const moduleUrls = build.modules.map(id => `/__wxa__/module/${encodeURI(id)}?v=${v}`);
+  const bootstrapUrl = `/__wxa__/service-bootstrap.js?v=${v}`;
 
+  if (options.isolated) {
+    const scripts = [...moduleUrls, bootstrapUrl];
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>appservice</title>
+<script>var __wxConfig = ${toJs(wxConfig)};</script>
+<script src="/__wxa__/runtime/frame.js" data-kind="service" data-app-service="${escapeHtml(JSON.stringify(scripts))}"${options.hot ? ' data-hot="1"' : ''}></script>
+<script src="/__baselib__/WAServiceMainContext.js"></script>
+</head>
+<body></body>
+</html>`;
+  }
+
+  const modules = moduleUrls.map(src => `<script src="${src}"></script>`).join('\n');
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -57,8 +77,25 @@ if (typeof define !== 'function') {
 }
 </script>
 ${modules}
-<script src="/__wxa__/service-bootstrap.js?v=${v}"></script>
+<script src="${bootstrapUrl}"></script>
 <script>parent.__wxaHost.frameLoaded('service', 0);</script>
+</head>
+<body></body>
+</html>`;
+}
+
+/**
+ * 主上下文通过 WeixinJSContext 创建的子上下文（runtime/context.ts）。
+ * empty 对应 allocEmpty：不预先加载 WASubContext.js，由基础库随后 loadLibFiles
+ */
+export function subcontextHtml(id: number, empty: boolean): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>subcontext ${id}</title>
+<script src="/__wxa__/runtime/frame.js" data-kind="service" data-context-id="${id}"></script>
+${empty ? '' : '<script src="/__baselib__/WASubContext.js"></script>\n'}<script>parent.__wxaContexts.loaded(${id});</script>
 </head>
 <body></body>
 </html>`;

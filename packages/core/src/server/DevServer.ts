@@ -24,11 +24,12 @@ import http from 'http';
 import path from 'path';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
-import { findDeveloperTicket, findRegionDataFile, resolveBaseLib, ResolvedBaseLib } from '@open-wxa/wxa-runner-extractor';
+import { findDeveloperTicket, findRegionDataFile, resolveBaseLib, ResolvedBaseLib, usesIsolatedContext } from '@open-wxa/wxa-runner-extractor';
 import { AppBuilder, BuildResult } from '../project/AppBuilder';
 import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
-import { appserviceHtml, hostHtml, webviewHtml } from './html';
+import { appserviceHtml, hostHtml, subcontextHtml, webviewHtml } from './html';
+import { ignoreListSourceMap } from './ignoreList';
 import { handleProxy } from './proxy';
 import { planHotUpdate } from './hmr';
 import { realLoginRouter, requireUsableTicket } from './realLogin';
@@ -201,8 +202,17 @@ export class DevServer {
       const launch = build.pages.includes(launchPath)
         ? { path: launchPath, query: Object.fromEntries(new URLSearchParams(String(req.query.query || ''))) }
         : { path: build.pages[0], query: {} };
-      res.type('html').send(appserviceHtml(build, launch, { hot: this.hotEnabled }));
+      res.type('html').send(appserviceHtml(build, launch, { hot: this.hotEnabled, isolated: usesIsolatedContext(this.baseLib.version) }));
     }));
+
+    app.get('/__wxa__/subcontext.html', (req, res) => {
+      const id = Number(req.query.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).type('text').send('子上下文 id 无效');
+        return;
+      }
+      res.type('html').send(subcontextHtml(id, req.query.empty === '1'));
+    });
 
     app.get(/^\/__wxa__\/webview\/(.+)\.html$/, this.withBuild((build, req, res, next) => {
       const pagePath = decodeURIComponent(req.params[0]);
@@ -240,7 +250,20 @@ export class DevServer {
     }));
 
     app.use('/__wxa__/runtime', express.static(this.runtimeDir(), { cacheControl: false }));
-    app.use('/__baselib__', express.static(this.baseLib.dir, { maxAge: '1d' }));
+    // 基础库脚本加入 DevTools 的忽略列表，原始代码就是脚本本身（换个地址，免得和脚本混为一个文件）
+    const sourceMaps = new Map<string, string>();
+    app.get(/^\/__baselib__\/(.+\.js)\.map$/, (req, res, next) => {
+      const file = path.resolve(this.baseLib.dir, req.params[0]);
+      if (!file.startsWith(this.baseLib.dir + path.sep) || !fs.existsSync(file)) return next();
+      if (!sourceMaps.has(file)) sourceMaps.set(file, ignoreListSourceMap(fs.readFileSync(file, 'utf8'), `${path.basename(file)}?original`));
+      res.type('json').send(sourceMaps.get(file));
+    });
+    app.use('/__baselib__', express.static(this.baseLib.dir, {
+      maxAge: '1d',
+      setHeaders: (res, file) => {
+        if (file.endsWith('.js')) res.setHeader('SourceMap', `${path.basename(file)}.map`);
+      }
+    }));
     app.all('/__wxa__/proxy', express.raw({ type: () => true, limit: '100mb' }), handleProxy);
 
     // 返回完整的 http 地址：image、video 组件只原样使用 http(s) 地址，其余的会被当成页面相对路径

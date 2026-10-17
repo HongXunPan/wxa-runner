@@ -51,6 +51,8 @@ export class Host implements HostApi {
   /** setup 和测试 API 声明的请求拦截 */
   readonly routes = new RequestRoutes();
   private service: { win: Window; bridge: FrameBridge } | null = null;
+  /** 新版基础库的业务子上下文；旧版基础库业务代码直接在逻辑层 iframe 里 */
+  private appContext: Window | null = null;
   private serviceLoaded!: () => void;
   private readonly serviceReady = new Promise<void>(resolve => {
     this.serviceLoaded = resolve;
@@ -109,6 +111,10 @@ export class Host implements HostApi {
     }
   }
 
+  registerAppContext(win: Window | null) {
+    this.appContext = win;
+  }
+
   frameLoaded(kind: FrameKind, webviewId: number) {
     if (kind === 'service') this.serviceLoaded();
     else this.pages.get(webviewId)?.loaded();
@@ -118,7 +124,7 @@ export class Host implements HostApi {
     const webviewId = kind === 'webview' ? this.webviewIdOf(win) : this.currentPage()?.id ?? 0;
     const result = this.api.invoke(api, args, { api, from: kind, webviewId });
     const deliver = (res: ApiResult) => {
-      if (callback) callback(cloneInto(win, res));
+      if (callback) callback(kind === 'service' ? this.cloneForService(res) : cloneInto(win, res));
     };
 
     if (result && typeof (result as Promise<ApiResult>).then === 'function') {
@@ -144,7 +150,7 @@ export class Host implements HostApi {
     const fromId = this.webviewIdOf(win);
     const service = this.service;
     if (!service) return;
-    const payload = cloneInto(service.win, data);
+    const payload = this.cloneForService(data);
     queueMicrotask(() => service.bridge.__dispatchSub(event, payload, fromId));
   }
 
@@ -161,10 +167,10 @@ export class Host implements HostApi {
 
   /**
    * 业务代码只运行在逻辑层，所以只记逻辑层调用、名字在 wx 上的 API，每个 API 一次。
-   * 其余是基础库内部调用的原生接口（如 getAppContact、loadLibFilesSync），业务既没调用也 mock 不了
+   * 其余是基础库内部调用的原生接口（如 getPermissionBytes、loadLibFilesSync），业务既没调用也 mock 不了
    */
   private reportUnimplemented({ api, from }: ApiContext) {
-    const wx = (this.service?.win as any)?.wx;
+    const wx = (this.serviceWindow() as any)?.wx;
     if (from !== 'service' || typeof wx?.[api] !== 'function') return;
     if (this.errors.some(error => error.api === api)) return;
     this.errors.push({
@@ -192,8 +198,17 @@ export class Host implements HostApi {
     return [...this.pages.values()];
   }
 
+  /** 业务代码所在的 window：getCurrentPages / wx 等在它上面 */
   serviceWindow(): Window | null {
-    return this.service?.win ?? null;
+    return this.appContext ?? this.service?.win ?? null;
+  }
+
+  /**
+   * 交给逻辑层的值属于业务代码所在的全局环境，而不是逻辑层 iframe：新版基础库不一定在业务子上下文里
+   * 重建这些值，属于别的 iframe 的对象在业务代码里 instanceof 不成立，setData 也会把这样的数组当成普通对象
+   */
+  private cloneForService<T>(value: T): T {
+    return cloneInto(this.serviceWindow()!, value);
   }
 
   onRoute(listener: (page: PageView, openType: OpenType) => void) {
@@ -379,7 +394,7 @@ export class Host implements HostApi {
   emitToService(event: string, data: unknown, webviewId?: number) {
     const service = this.service;
     if (!service) return;
-    const payload = cloneInto(service.win, data);
+    const payload = this.cloneForService(data);
     queueMicrotask(() => service.bridge.__dispatchOn(event, payload, webviewId));
   }
 

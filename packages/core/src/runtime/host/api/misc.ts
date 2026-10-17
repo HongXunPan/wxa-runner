@@ -5,7 +5,7 @@
  * 测试中可以用 __wxa_test_api__.mock() 覆盖。开启 --real-login 时，登录和手机号经开发服务器向微信换取真实结果。
  */
 
-import { ApiHandler, fail, ok } from './registry';
+import { ApiHandler, ApiResult, fail, ok } from './registry';
 import { saveTempFile } from './tempFiles';
 
 const DIR_MODE = 0o40755;
@@ -139,10 +139,11 @@ export function createMiscApis(appid: string, options?: { realLogin?: boolean })
       return { tempFilePath: await saveTempFile(bytes, String(args.fileType || 'png')) };
     },
 
-    // 基础库经这里向后台拉各种配置。业务域名列表（webapi_getwxanetwork）要明确失败：
-    // 拿到空列表时基础库会把 web-view 事件里的网页地址清空，拉取失败才不校验，等同开发者工具的「不校验业务域名」
+    // 基础库经这两个接口向后台拉各种配置和小程序信息
     operateWXData: (args, { api }) =>
-      args.data?.api_name === 'webapi_getwxanetwork' ? fail(api, 'not available in wxa-runner') : ok(api),
+      args.data?.api_name === 'webapi_getwxanetwork' ? bizDomainUnavailable(api) : ok(api),
+    getAppContact: (args, { api }) =>
+      args.keyPath === 'WxaAppInfo.Network.BizDomain' ? bizDomainUnavailable(api) : ok(api),
 
     // 真实登录失败时明确返回 fail，不退回假数据：配置或登录态的问题要让开发者马上发现
     login: options?.realLogin
@@ -189,4 +190,13 @@ async function postDevServer(url: string): Promise<Record<string, any>> {
 
 function mockUser() {
   return { nickName: 'wxa-runner', avatarUrl: '', gender: 0, country: '', province: '', city: '', language: 'zh_CN' };
+}
+
+/**
+ * 不校验业务域名，等同开发者工具的「不校验合法域名、web-view（业务域名）」：拿到空的业务域名列表时，
+ * 基础库会把 web-view 事件里的网页地址清空，只有拉取失败才不校验。不同版本从不同的原生接口拉取
+ * （如 3.13.2 用 getAppContact，3.17.3 用 operateWXData），两个都要失败
+ */
+function bizDomainUnavailable(api: string): ApiResult {
+  return fail(api, 'not available in wxa-runner');
 }

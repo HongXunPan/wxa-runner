@@ -23,6 +23,7 @@ pnpm build
 pnpm test            # 单元 + 集成 + e2e
 pnpm test:playwright # tests/playwright，用 Playwright 的 test runner 跑，需要先 pnpm build
 pnpm test:coverage
+WXA_BASELIB=3.8.8 pnpm test  # 在指定的基础库版本上跑全部测试（不指定时用默认选中的版本）
 
 node packages/cli/bin/wxa-runner.js dev examples/showcase --open   # 用源码运行示例
 ```

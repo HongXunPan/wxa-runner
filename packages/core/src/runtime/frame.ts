@@ -4,8 +4,12 @@
  * 1. 准备开发者工具会预置的全局变量（基础库依赖它们）
  * 2. 提供 WeixinJSBridge，把调用转发给宿主
  * 3. 渲染层：模拟手机屏幕尺寸，处理鼠标输入（见 installInput）
+ *
+ * 新版基础库的逻辑层分主上下文和子上下文（见 context.ts）。逻辑层 iframe 是主上下文；
+ * 子上下文页面也加载这个脚本（data-context-id），只准备全局变量，桥由主上下文的基础库交给它。
  */
 
+import { installWeixinJSContext } from './context';
 import { installApiStubs } from './sdkStubs';
 import type { FrameBridge, FrameKind, HostApi } from './types';
 
@@ -14,7 +18,8 @@ type Listener = (data: unknown, webviewId?: number) => void;
 const script = document.currentScript as HTMLScriptElement;
 const kind = (script.dataset.kind || 'webview') as FrameKind;
 const webviewId = Number(script.dataset.webviewId || 0);
-const host = (window.parent as any).__wxaHost as HostApi;
+const subContextId = Number(script.dataset.contextId || 0);
+const host = ((subContextId ? window.parent.parent : window.parent) as any).__wxaHost as HostApi;
 const g = window as any;
 
 g.__global = g;
@@ -49,15 +54,25 @@ if (kind === 'service') {
 
 overrideUserAgent();
 
-const bridge = createBridge();
-g.WeixinJSBridge = bridge;
-// 基础库会用自己的包装替换 WeixinJSBridge，宿主始终通过这个引用回调
-g.__wxaBridge = bridge;
-
 window.addEventListener('error', event => host.reportError(kind, webviewId, event.error || event.message));
 window.addEventListener('unhandledrejection', event => host.reportError(kind, webviewId, event.reason));
 
-host.registerFrame(kind, window, bridge, webviewId);
+if (subContextId) {
+  (window.parent as any).__wxaContexts.prepare(subContextId, window);
+} else {
+  const bridge = createBridge();
+  g.WeixinJSBridge = bridge;
+  // 基础库会用自己的包装替换 WeixinJSBridge，宿主始终通过这个引用回调
+  g.__wxaBridge = bridge;
+  if (script.dataset.appService) {
+    installWeixinJSContext(window, host, {
+      dispatchNative: bridge.__dispatchOn,
+      appServiceScripts: JSON.parse(script.dataset.appService),
+      hot: script.dataset.hot === '1'
+    });
+  }
+  host.registerFrame(kind, window, bridge, webviewId);
+}
 
 /**
  * 基础库初始化完会把广告等缺伴生子包的接口改成「返回 undefined」的函数，占位只有在

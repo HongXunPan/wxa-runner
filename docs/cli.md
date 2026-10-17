@@ -35,6 +35,7 @@ wxa-runner baselib extract [version]  解包基础库到 ~/.wxa-runner/baselib�
 | --- | --- |
 | `WXA_DEVTOOLS_PATH` | 开发者工具不在默认位置时，指定安装目录 |
 | `WXA_VENDOR_DIR` | 指定基础库目录（开发者工具的 `WeappVendor`） |
+| `WXA_BASELIB` | 没有用 `--baselib` 指定时使用的基础库版本 |
 | `WXA_WCC` / `WXA_WCSC` | 直接指定编译器，优先于开发者工具和 miniprogram-compiler |
 | `WECHAT_DEV_TICKET` | `--real-login` 使用的开发者 ticket，优先于开发者工具的登录态 |
 | `WXA_*` | 传给 setup 文件，见 [setup.md](./setup.md) |

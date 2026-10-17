@@ -70,7 +70,7 @@ function updateStyles(win: any, code: string) {
   const sheets: Record<string, StyleSheetEntry> | undefined = win.__styleSheetManager2__?._pathMap;
   if (!sheets) throw new Error('基础库没有样式表管理器，无法热替换样式');
   const applied = Object.keys(sheets);
-  win.eval(code);
+  runScript(win, code);
 
   for (const key of applied) {
     const [, file, classPrefix] = /^\.\/(.+\.wxss):(.*)$/.exec(key) || [];
@@ -107,7 +107,7 @@ function updateTemplates(win: any, code: string, units: string[]) {
   // 保留 wxs_nf_init：WXS 运行时只能初始化一次，重复执行会因改写内置对象原型而报错
   const cache = win.__WXML_GLOBAL__;
   if (cache) Object.assign(cache, { ops_cached: {}, ops_set: {}, ops_init: {}, debuginfo_set: {}, modules: {} });
-  win.eval(code);
+  runScript(win, code);
 
   for (const id of units) {
     const generate = win.__wxAppCode__[id + '.wxml'];
@@ -165,9 +165,14 @@ function register(service: any, id: string, { constructor, options }: Registrati
  */
 function loadModule(service: any, script: string, hotId: string): Registration | undefined {
   let factory: unknown;
-  service.eval(`(function (define) {\n${script}\n})`)((_id: string, fn: unknown) => {
+  service.__wxaHotDefine__ = (_id: string, fn: unknown) => {
     factory = fn;
-  });
+  };
+  try {
+    runScript(service, `(function (define) {\n${script}\n})(__wxaHotDefine__);`);
+  } finally {
+    delete service.__wxaHotDefine__;
+  }
   if (typeof factory !== 'function') throw new Error('模块脚本没有 define 模块');
   service.define(hotId, factory);
 
@@ -201,6 +206,33 @@ function swapMethods(instance: any, definition: Record<string, any>) {
   const data = definition.data || {};
   const added = Object.keys(data).filter(key => !(key in instance.data));
   if (added.length) instance.setData(Object.fromEntries(added.map(key => [key, data[key]])));
+}
+
+/**
+ * 在 win 的全局作用域执行代码，出错时抛出（不记入宿主的错误列表）
+ *
+ * 不用 win.eval：新版基础库会删掉所在上下文的 eval。内联脚本同步执行，
+ * 出错时在 win 上派发 error 事件，捕获阶段先于 frame.ts 的错误上报拦下
+ */
+function runScript(win: any, code: string) {
+  let failed = false;
+  let error: unknown;
+  const onError = (event: ErrorEvent) => {
+    failed = true;
+    error = event.error ?? new Error(event.message);
+    event.stopImmediatePropagation();
+    event.preventDefault();
+  };
+  const script = win.document.createElement('script');
+  script.text = code;
+  win.addEventListener('error', onError, true);
+  try {
+    win.document.head.appendChild(script);
+  } finally {
+    win.removeEventListener('error', onError, true);
+    script.remove();
+  }
+  if (failed) throw error;
 }
 
 async function fetchText(url: string): Promise<string> {

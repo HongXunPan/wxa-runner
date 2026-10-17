@@ -158,6 +158,30 @@ describe('网络 API', () => {
     expect(events[0][1]).toMatchObject({ state: 'fail' });
   });
 
+  it('基础库自己的网络请求（数据上报等）不发往网络、不记入请求记录，直接失败', async () => {
+    const recorded: unknown[] = [];
+    const fetchMock = vi.fn();
+    const socketMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('WebSocket', socketMock);
+    const apis = createNetworkApis({ emit: () => undefined, defaultTimeout: () => 60000, onRequest: request => recorded.push(request) });
+
+    // 基础库通过 _requestSkipCheckDomain 等内部接口发出，带 __skipDomainCheck__ 标记
+    const internal = { url: 'https://report-online.sh.wxgateway.com/SdkReport', method: 'POST', __skipDomainCheck__: true };
+    const results = ['createRequestTask', 'createDownloadTask', 'createUploadTask', 'createSocketTask'].map(api => call(apis, api, internal).errMsg);
+    await flush();
+
+    expect(results).toEqual([
+      expect.stringMatching(/^createRequestTask:fail/),
+      expect.stringMatching(/^createDownloadTask:fail/),
+      expect.stringMatching(/^createUploadTask:fail/),
+      expect.stringMatching(/^createSocketTask:fail/)
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(socketMock).not.toHaveBeenCalled();
+    expect(recorded).toEqual([]);
+  });
+
   it('downloadFile 把下载的文件存成开发服务器上的临时文件，返回它的地址', async () => {
     const saved: Array<{ url: string; content: string }> = [];
     const { apis, events } = setup(proxied('file-content'));
@@ -187,6 +211,13 @@ describe('其它 API', () => {
     expect(call(apis, 'readFileSync', { filePath: 'http://usr/logs/1.log' })).toMatchObject({ data: 'hello' });
     expect(call(apis, 'stat', { path: 'http://usr/logs/1.log' }).stats).toMatchObject({ size: 5 });
     expect(call(apis, 'readdir', { dirPath: 'http://usr/logs' }).files).toEqual(['1.log']);
+  });
+
+  it('不校验业务域名：基础库不论从哪个原生接口拉业务域名列表都明确失败，拉别的照常成功', () => {
+    expect(call(apis, 'operateWXData', { data: { api_name: 'webapi_getwxanetwork' } }).errMsg).toMatch(/^operateWXData:fail /);
+    expect(call(apis, 'getAppContact', { keyPath: 'WxaAppInfo.Network.BizDomain' }).errMsg).toMatch(/^getAppContact:fail /);
+    expect(call(apis, 'operateWXData', { data: { api_name: 'webapi_getwxabusinessconfig' } }).errMsg).toBe('operateWXData:ok');
+    expect(call(apis, 'getAppContact', { keyPath: 'WxaAppInfo.Name' }).errMsg).toBe('getAppContact:ok');
   });
 
   it('开放接口返回可预测的模拟数据，支付明确失败', () => {

@@ -8,7 +8,8 @@ import {
   listBaseLibs,
   listInstalledBaseLibs,
   resolveBaseLib,
-  selectBaseLib
+  selectBaseLib,
+  usesIsolatedContext
 } from '../../packages/extractor/src/baselib';
 import { findDeveloperTicket, findRegionDataFile, TICKET_ENV } from '../../packages/extractor/src/devtools';
 import { readWxvpkgFile, readWxvpkgIndex } from '../../packages/extractor/src/wxvpkg';
@@ -70,6 +71,29 @@ describe('基础库版本选择', () => {
     expect(compareVersions('3.10.0', '3.9.9')).toBeGreaterThan(0);
     expect(compareVersions('3.7', '3.7.0')).toBe(0);
   });
+
+  it('3.7.1 起逻辑层分主上下文和子上下文，更早的版本是单个上下文', () => {
+    expect(['2.32.3', '3.7.0', '3.7.1', '3.8.8', '3.10.1'].map(usesIsolatedContext)).toEqual([false, false, true, true, true]);
+  });
+});
+
+describe('用环境变量指定基础库版本', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const vendorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wxa-vendor-'));
+  for (const version of ['3.5.8', '3.6.6']) {
+    fs.writeFileSync(path.join(vendorDir, `${version}.wxvpkg`), packWxvpkg({ '/WAService.js': version }));
+  }
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wxa-cache-'));
+
+  it('没有指定版本时使用 WXA_BASELIB，显式指定的版本优先', () => {
+    vi.stubEnv('WXA_VENDOR_DIR', vendorDir);
+    vi.stubEnv('WXA_BASELIB', '3.5.8');
+    expect(resolveBaseLib({ cacheDir }).version).toBe('3.5.8');
+    expect(resolveBaseLib({ version: '3.6.6', cacheDir }).version).toBe('3.6.6');
+  });
 });
 
 describe('内置基础库兜底', () => {
@@ -107,6 +131,7 @@ describe('内置基础库兜底', () => {
 
   it('没装开发者工具的机器上，解析出内置的 3.7.0，运行时要加载的文件都在', () => {
     vi.stubEnv('WXA_VENDOR_DIR', createProject({}));
+    vi.stubEnv('WXA_BASELIB', '');
     const lib = resolveBaseLib();
     expect(lib).toMatchObject({ version: '3.7.0', source: 'bundled', compatible: true });
     expect(fs.existsSync(path.join(lib.dir, 'WAService.js'))).toBe(true);

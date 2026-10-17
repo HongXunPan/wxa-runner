@@ -40,7 +40,8 @@
 - ✅ **零配置启动**：`wxa-runner dev ./dist/dev/mp-weixin`
 - ✅ **自动刷新**：chokidar 监听文件 → 增量编译 → WebSocket 通知浏览器刷新，**刷新后停留在当前页面和参数**
 - ✅ **编译错误可读**：直接显示官方编译器给出的文件和行列号，修复后自动恢复
-- ✅ **Chrome DevTools 调试**：每个 JS 文件单独一个 `<script>`，行号与源文件一致；ES Module 语法经 esbuild 转换后附带 source map
+- ✅ **Chrome DevTools 调试**：每个 JS 文件单独一个 `<script>`，行号与源文件一致；ES Module 语法经 esbuild 转换后附带 source map；
+  基础库脚本通过 source map 加入 DevTools 的忽略列表，控制台的来源链接、调用栈和单步调试都落在业务代码上
 - ✅ **深链接**：`http://localhost:3000/?path=pages/detail/detail&id=1` 直接打开指定页面
 - ⏳ VSCode 插件：未开始
 
@@ -109,6 +110,7 @@ wxa-runner/
 │   │       │   └── setup.ts           # 编译 setup 文件
 │   │       └── runtime/               # 浏览器端（打包为 dist/runtime/host.js、frame.js）
 │   │           ├── frame.ts           # 注入 iframe：全局变量、WeixinJSBridge、设备尺寸、触摸模拟
+│   │           ├── context.ts         # 新版基础库：模拟原生 WeixinJSContext，在逻辑层里创建子上下文
 │   │           └── host/
 │   │               ├── Host.ts        # 宿主：消息分发、路由、页面栈
 │   │               ├── PageStack.ts   # 页面栈（纯逻辑）
@@ -156,13 +158,20 @@ wxa-runner/
 `wxa-runner-extractor` 解析它，把选定的版本解包到 `~/.wxa-runner/baselib/<版本>/` 并缓存。
 以上位置均可通过环境变量覆盖：`WXA_DEVTOOLS_PATH`、`WXA_VENDOR_DIR`、`WXA_WCC` / `WXA_WCSC`。
 
-**支持的基础库版本：≤ 3.7.0**（`MAX_COMPATIBLE_VERSION`）。不指定版本时，自动选择本机已安装的最新兼容版本。
+**默认使用的基础库版本：≤ 3.7.0**（`MAX_COMPATIBLE_VERSION`，已验证的范围）。不指定版本时，自动选择本机已安装的最新兼容版本；
+更高的版本用 `--baselib` 或 `WXA_BASELIB` 指定，启动时提示超出已验证的范围。
 
 | 版本 | 逻辑层结构 | 状态 |
 | --- | --- | --- |
 | 2.x – 3.7.0 | `WAService.js` 包含完整框架，在单个 JS 上下文中运行 | ✅ 已验证 2.32.3 / 3.3.4 / 3.5.8 / 3.7.0 |
-| 3.7.1 起 | 业务代码运行在由原生 `WeixinJSContext` 创建的隔离上下文中（glass-easel 适配） | ⏳ 未支持 |
-| 3.8 起 | `WAService.js` 只是占位，框架在 `WAServiceMainContext.js` / `WASubContext.js` | ⏳ 未支持 |
+| 3.7.1 起 | 业务代码运行在由原生 `WeixinJSContext` 创建的隔离上下文中（glass-easel 适配） | 🧪 全部测试在 3.7.1 / 3.8.8 上通过，需显式指定版本 |
+| 3.8 起 | `WAService.js` 只是占位，框架在 `WAServiceMainContext.js` / `WASubContext.js` | 同上 |
+
+3.7.1 起（`ISOLATED_CONTEXT_SINCE`），逻辑层 iframe 加载 `WAServiceMainContext.js`，作为主上下文；
+`runtime/context.ts` 在其中提供 `WeixinJSContext`，主上下文用它创建子上下文（逻辑层里的同源 iframe，加载 `WASubContext.js`），
+业务代码在名为 `app` 的子上下文里执行。主、子上下文之间的消息由基础库直接互相调用，不经过 wxa-runner。
+业务代码的启动要经过几步基础库内部行为，任何一步没发生时，超时后报告停在哪一步，小程序照常结束启动。
+原生接口的约定由模拟基础库（`tests/fakeBaseLib.ts`）固定，CI 上没有新版基础库也能测到。
 
 ### 2. 编译器（wxa-runner-compiler）
 
@@ -404,7 +413,8 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 
 **网络代理**：小程序设置的请求头放在 `x-wxa-headers`（JSON）里传给代理，cookie、referer 等浏览器
 禁止设置的请求头因此也能带上；响应头和 `set-cookie` 以 URL 编码的 JSON 返回。代理只监听本机地址，
-用于开发环境。
+用于开发环境。只转发小程序自己的请求：基础库自己的请求（数据上报、配置拉取等，带 `__skipDomainCheck__` 标记）
+直接按失败返回，不发往网络，也不记入 `requests()`。
 
 ---
 

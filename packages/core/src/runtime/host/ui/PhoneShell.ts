@@ -63,6 +63,7 @@ type ScaleMode = 'fit' | '1';
 
 const SCALE_STORAGE_KEY = 'wxa-runner:scale';
 const MIN_SCALE = 0.5;
+const NOTICE_DURATION = 6000;
 
 /** 手动打开时默认适应窗口；自动化环境默认 1:1，截图和视觉基线不随窗口大小变化 */
 function loadScaleMode(): ScaleMode {
@@ -77,6 +78,7 @@ function loadScaleMode(): ScaleMode {
 
 export class PhoneShell {
   readonly pages: HTMLElement;
+  private readonly stage: HTMLElement;
   private readonly slot: HTMLElement;
   private readonly device: HTMLElement;
   private readonly toolbar: HTMLElement;
@@ -92,6 +94,8 @@ export class PhoneShell {
   private readonly routeLabel: HTMLElement;
   private toastEl: HTMLElement | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private noticeEl: HTMLElement | null = null;
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   private tabBarConfig: TabBarConfig | null = null;
   private onTabTap: (pagePath: string, index: number) => void = () => undefined;
   private navigation: NavigationState = { title: '', backgroundColor: '#000', textStyle: 'white', showBack: false, custom: false };
@@ -132,6 +136,7 @@ export class PhoneShell {
         </div>
       </div>`;
 
+    this.stage = root.querySelector('.wxa-stage')!;
     this.slot = root.querySelector('.wxa-device-slot')!;
     this.device = root.querySelector('.wxa-device')!;
     this.toolbar = root.querySelector('.wxa-toolbar')!;
@@ -393,6 +398,33 @@ export class PhoneShell {
 
   showImagePreview(urls: string[], current: number) {
     openImagePreview(this.overlay, urls, current);
+  }
+
+  /**
+   * 在手机外面提示 wxa-runner 自身的问题（如真实登录失败），不混进小程序的界面。
+   * 同一时间只显示一条，新的替换旧的：业务代码反复重试时不会堆满屏幕
+   */
+  showNotice(title: string, message: string) {
+    this.hideNotice();
+    const notice = element('div', 'wxa-notice');
+    notice.setAttribute('role', 'alert');
+    const text = element('div', 'wxa-notice-text');
+    text.append(element('div', 'wxa-notice-title', title), element('div', 'wxa-notice-message', message));
+    const close = element('button', 'wxa-notice-close', '×');
+    close.setAttribute('aria-label', '关闭');
+    close.addEventListener('click', () => this.hideNotice());
+    notice.append(element('span', 'wxa-notice-icon', '!'), text, close);
+
+    this.stage.appendChild(notice);
+    this.noticeEl = notice;
+    this.noticeTimer = setTimeout(() => this.hideNotice(), NOTICE_DURATION);
+  }
+
+  hideNotice() {
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = null;
+    this.noticeEl?.remove();
+    this.noticeEl = null;
   }
 
   showError(message: string) {

@@ -24,6 +24,8 @@ export interface RunnerOptions {
   baseLibVersion?: string;
   /** 基础库解包目录，默认 ~/.wxa-runner/baselib；模拟的基础库要放到临时目录，免得污染真实缓存 */
   baseLibCacheDir?: string;
+  /** 开启 --real-login；不想依赖本机登录态时用 page.route 拦截 /__wxa__/api/* */
+  realLogin?: boolean;
 }
 
 export interface Runner {
@@ -45,6 +47,7 @@ export async function startRunner(files: Record<string, string | object>, option
     watch: false,
     baseLibVersion: options.baseLibVersion,
     baseLibCacheDir: options.baseLibCacheDir,
+    realLogin: options.realLogin,
     runtimeDir: RUNTIME_DIR,
     logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
   });

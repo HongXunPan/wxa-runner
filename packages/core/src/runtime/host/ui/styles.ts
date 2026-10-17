@@ -81,5 +81,12 @@ html, body { margin: 0; height: 100%; background: radial-gradient(120% 80% at 50
 .wxa-toolbar button { border: 0; background: #111214; color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
 .wxa-toolbar .wxa-scale { min-width: 52px; background: #fff; color: #333; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); font-variant-numeric: tabular-nums; }
 .wxa-route { font-family: Menlo, monospace; }
+.wxa-notice { position: fixed; top: 16px; right: 16px; z-index: 100; display: flex; align-items: flex-start; gap: 10px; width: max-content; max-width: min(320px, calc(100vw - 32px)); padding: 12px 10px 12px 14px; box-sizing: border-box; border-radius: 12px; background: #fff; box-shadow: 0 0 0 1px rgba(15,23,42,.06), 0 12px 32px -8px rgba(15,23,42,.28); font-size: 13px; line-height: 20px; color: #555; animation: wxa-notice-in .18s ease-out; }
+.wxa-notice-icon { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; background: #fa5151; color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
+.wxa-notice-text { flex: 1; min-width: 0; word-break: break-word; text-wrap: pretty; }
+.wxa-notice-title { font-weight: 600; color: #111214; }
+.wxa-notice-close { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: none; color: #999; font-size: 16px; line-height: 20px; cursor: pointer; }
+.wxa-notice-close:hover { background: rgba(0,0,0,.06); color: #111214; }
 @keyframes wxa-spin { to { transform: rotate(360deg); } }
+@keyframes wxa-notice-in { from { opacity: 0; transform: translateY(-8px); } }
 `;

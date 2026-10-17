@@ -86,8 +86,23 @@ export class MemoryFileSystem {
   }
 }
 
-export function createMiscApis(appid: string, options?: { realLogin?: boolean }): Record<string, ApiHandler> {
+export interface MiscApiOptions {
+  realLogin?: boolean;
+  /** 真实登录失败时触发，用来在页面上提示开发者；业务代码照常收到 fail */
+  onRealLoginFail?: (api: string, reason: string) => void;
+}
+
+export function createMiscApis(appid: string, options?: MiscApiOptions): Record<string, ApiHandler> {
   const fs = new MemoryFileSystem();
+
+  const realLogin = async (api: string, url: string) => {
+    try {
+      return await postDevServer(url);
+    } catch (error) {
+      options?.onRealLoginFail?.(api, (error as Error).message);
+      throw error;
+    }
+  };
 
   const guard = (api: string, action: () => Record<string, unknown> | void) => {
     try {
@@ -147,11 +162,11 @@ export function createMiscApis(appid: string, options?: { realLogin?: boolean })
 
     // 真实登录失败时明确返回 fail，不退回假数据：配置或登录态的问题要让开发者马上发现
     login: options?.realLogin
-      ? async (_args, { api }) => ok(api, { code: (await postDevServer('/__wxa__/api/login')).code })
+      ? async (_args, { api }) => ok(api, { code: (await realLogin(api, '/__wxa__/api/login')).code })
       : (_args, { api }) => ok(api, { code: `wxa_mock_code_${Date.now().toString(36)}` }),
     // 基础库只从 JSON.parse(data) 里取手机号的 code
     getPhoneNumber: options?.realLogin
-      ? async (_args, { api }) => ok(api, await postDevServer('/__wxa__/api/phone-number'))
+      ? async (_args, { api }) => ok(api, await realLogin(api, '/__wxa__/api/phone-number'))
       : (_args, { api }) => ok(api, { data: JSON.stringify({ code: `mock_phone_code_${Date.now()}` }), encryptedData: 'mock_encrypted', iv: 'mock_iv' }),
     checkSession: () => undefined,
     authorize: () => undefined,

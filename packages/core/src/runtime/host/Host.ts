@@ -459,7 +459,10 @@ export class Host implements HostApi {
         documentOf: webviewId => this.pages.get(webviewId)?.win?.document,
         emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data)
       }),
-      ...createMiscApis(this.info.appid, { realLogin: this.info.realLogin })
+      ...createMiscApis(this.info.appid, {
+        realLogin: this.info.realLogin,
+        onRealLoginFail: (api, reason) => this.shell.showNotice(`wx.${api} 真实登录失败`, reason)
+      })
     });
   }
 }

@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "pnpm --filter @open-wxa/wxa-runner-cli dev",
+    "dev": "pnpm --filter wxa-runner dev",
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:playwright": "playwright test",

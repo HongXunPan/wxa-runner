@@ -127,7 +127,7 @@ importers:
         version: 5.9.3
     optionalDependencies:
       '@open-wxa/wxa-baselib':
-        specifier: github:open-wxa/wxa-baselib
+        specifier: github:open-wxa/wxa-baselib#2c167c210da78d8b1e8993ea52bfe6836e6853ae
         version: https://codeload.github.com/open-wxa/wxa-baselib/tar.gz/2c167c210da78d8b1e8993ea52bfe6836e6853ae
 
   packages/playwright:

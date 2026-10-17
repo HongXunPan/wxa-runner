@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { findBundledBaseLibRoot } from '../../packages/extractor/src/baselib';
 import { findRegionDataFile } from '../../packages/extractor/src/devtools';
 import { DevServer } from '../../packages/core/src/server/DevServer';
+import { createFakeVendorDir, FAKE_BASELIBS } from '../fakeBaseLib';
 import { createProject, EXAMPLES, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
@@ -15,6 +16,8 @@ describe.skipIf(!ready)('DevServer', () => {
   const get = (url: string) => fetch(base + url);
 
   beforeAll(async () => {
+    // 这里测的是默认选中的（单上下文）基础库，不受 WXA_BASELIB 影响
+    vi.stubEnv('WXA_BASELIB', '');
     server = new DevServer({
       projectPath: path.join(EXAMPLES, 'showcase'),
       port: 0,
@@ -25,7 +28,10 @@ describe.skipIf(!ready)('DevServer', () => {
     base = await server.start();
   });
 
-  afterAll(() => server.close());
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await server.close();
+  });
 
   it('宿主页面加载浏览器端运行时', async () => {
     const html = await (await get('/')).text();
@@ -47,6 +53,17 @@ describe.skipIf(!ready)('DevServer', () => {
     expect(positions.every(p => p > 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     expect(html).toContain('"appLaunchInfo":{"scene":1001,"path":"pages/detail/detail","query":{"id":"9"}}');
+  });
+
+  it('基础库脚本加入 DevTools 的忽略列表：响应头带 source map，映射覆盖整个文件，原始代码与脚本相同', async () => {
+    const script = await get('/__baselib__/WAWebview.js');
+    const code = await script.text();
+    const mapUrl = new URL(script.headers.get('sourcemap')!, script.url);
+    const map = await (await fetch(mapUrl)).json();
+
+    expect(map.x_google_ignoreList).toEqual([0]);
+    expect(map.mappings.split(';')).toHaveLength(code.split('\n').length);
+    expect(await (await fetch(new URL(map.sources[0], mapUrl))).text()).toBe(code);
   });
 
   it('渲染层页面带上该页的 window 配置和 webviewId', async () => {
@@ -98,6 +115,7 @@ describe.skipIf(!ready)('DevServer：没装开发者工具的机器', () => {
 
   beforeAll(async () => {
     vi.stubEnv('WXA_VENDOR_DIR', createProject({}));
+    vi.stubEnv('WXA_BASELIB', '');
     server = new DevServer({
       projectPath: path.join(EXAMPLES, 'showcase'),
       port: 0,
@@ -119,5 +137,53 @@ describe.skipIf(!ready)('DevServer：没装开发者工具的机器', () => {
       const res = await fetch(`${server.url}/__baselib__/${file}`);
       expect(await res.text()).toBe(fs.readFileSync(path.join(bundledDir, file), 'utf8'));
     }
+  });
+});
+
+describe.skipIf(!ready)('DevServer：新版基础库（隔离上下文）', () => {
+  let server: DevServer;
+  const get = (url: string) => fetch(server.url + url);
+
+  beforeAll(async () => {
+    vi.stubEnv('WXA_VENDOR_DIR', createFakeVendorDir());
+    server = new DevServer({
+      projectPath: path.join(EXAMPLES, 'showcase'),
+      port: 0,
+      watch: false,
+      baseLibVersion: FAKE_BASELIBS.evaluateScriptFile.version,
+      baseLibCacheDir: createProject({}),
+      runtimeDir: RUNTIME_DIR,
+      logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
+    });
+    await server.start();
+  });
+
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await server.close();
+  });
+
+  it('逻辑层只加载桥和主上下文基础库，业务模块和 bootstrap 按顺序交给子上下文执行', async () => {
+    const html = await (await get('/__wxa__/appservice.html')).text();
+    expect(html).toContain('<script src="/__baselib__/WAServiceMainContext.js"></script>');
+    expect(html).not.toContain('/__baselib__/WAService.js');
+    expect(html).toContain('"isIsolateContext":true');
+
+    const attribute = /data-app-service="([^"]*)"/.exec(html)![1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const scripts: string[] = JSON.parse(attribute);
+    expect(scripts[0]).toMatch(/^\/__wxa__\/module\/app\.js\?/);
+    expect(scripts[scripts.length - 1]).toMatch(/^\/__wxa__\/service-bootstrap\.js\?/);
+  });
+
+  it('子上下文页面先加载桥再加载子上下文基础库，allocEmpty 创建的空上下文不加载基础库', async () => {
+    const full = await (await get('/__wxa__/subcontext.html?id=2')).text();
+    expect(full.indexOf('data-context-id="2"')).toBeGreaterThan(0);
+    expect(full.indexOf('/__baselib__/WASubContext.js')).toBeGreaterThan(full.indexOf('data-context-id="2"'));
+    expect(await (await get('/__wxa__/subcontext.html?id=3&empty=1')).text()).not.toContain('WASubContext.js');
+  });
+
+  it('子上下文页面缺少合法的 id 时返回 400', async () => {
+    expect((await get('/__wxa__/subcontext.html')).status).toBe(400);
+    expect((await get('/__wxa__/subcontext.html?id=abc')).status).toBe(400);
   });
 });

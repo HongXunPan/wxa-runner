@@ -22,6 +22,8 @@ export interface RunnerOptions {
   permissions?: string[];
   /** 不指定时用最新的兼容版本 */
   baseLibVersion?: string;
+  /** 基础库解包目录，默认 ~/.wxa-runner/baselib；模拟的基础库要放到临时目录，免得污染真实缓存 */
+  baseLibCacheDir?: string;
 }
 
 export interface Runner {
@@ -42,6 +44,7 @@ export async function startRunner(files: Record<string, string | object>, option
     port: 0,
     watch: false,
     baseLibVersion: options.baseLibVersion,
+    baseLibCacheDir: options.baseLibCacheDir,
     runtimeDir: RUNTIME_DIR,
     logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
   });

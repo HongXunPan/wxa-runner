@@ -34,16 +34,18 @@ export interface WxmlCompileOptions {
 // Windows 命令行长度上限约 32K，超出时改用配置文件传参（开发者工具同样如此）
 const MAX_INLINE_ARGS_LENGTH = 30000;
 
+// 组件配置的分隔符。miniprogram-compiler 的 wcc 遇到 >_<7 这样只带一位数字的分隔符会崩溃，所以固定用 4 位
+const SPLIT = '>_<1024';
+
 export async function compileWxml(options: WxmlCompileOptions): Promise<string> {
   const { wcc } = findCompilerBinaries();
-  const split = `>_<${Date.now() % 10000}`;
 
   const config: Array<string | number> = [options.components.length];
   for (const component of options.components) {
     config.push(`./${component.path}.wxml`, component.tags.length, ...component.tags);
   }
 
-  const args = ['-d', '--split', split, options.cut ? '-xc' : '-cc', config.join(split)];
+  const args = ['-d', '--split', SPLIT, options.cut ? '-xc' : '-cc', config.join(SPLIT)];
   if (options.files.some(file => file.endsWith('.wxs'))) {
     args.unshift('-ds');
   }

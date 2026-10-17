@@ -89,4 +89,25 @@ describe.skipIf(!hasToolchain())('官方编译器', () => {
     const results = await Promise.all(Array.from({ length: 8 }, () => compileWxml({ cwd: root, files, components, cut: false })));
     expect(new Set(results).size).toBe(1);
   });
+
+  // CI 上偶发「wcc 编译失败：std::out_of_range」：miniprogram-compiler 的 wcc 在某些时刻编译会崩溃，开发者工具的不会
+  it('使用 miniprogram-compiler 的编译器（Linux、CI）时，任何时刻编译都不会崩溃', async () => {
+    vi.stubEnv('WXA_WCC', '');
+    vi.stubEnv('WXA_WCSC', '');
+    const packaged = locateCompilerBinaries([]);
+    vi.stubEnv('WXA_WCC', packaged.wcc);
+    vi.stubEnv('WXA_WCSC', packaged.wcsc);
+    vi.resetModules();
+    const { compileWxml: compileWithPackaged } = await import('../../packages/compiler/src/wcc');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      for (const time of [1792250000007, 1792250000042, 1792250001234]) {
+        vi.setSystemTime(time);
+        expect(await compileWithPackaged({ cwd: root, files, components, cut: false })).toContain('$gwx=function');
+      }
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
 });

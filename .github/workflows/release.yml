@@ -1,0 +1,43 @@
+name: Release
+
+# 推送 v* tag 时发布全部 npm 包。认证用 npm 的 Trusted Publishing（OIDC），不需要 npm token：
+# 每个包在 npmjs.com 的设置里登记了本仓库的这个文件（release.yml），改文件名要同步改登记
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Trusted Publishing 用 GitHub 签发的 OIDC token 向 npm 认证，同时生成 provenance
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing 需要 npm ≥ 11.5.1，Node 22 自带的是 npm 10
+      - run: npm install -g npm@11
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: node scripts/release.mjs

@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # release.yml 发布前先跑一遍
+  workflow_call:
 
 jobs:
   test:
@@ -40,3 +42,6 @@ jobs:
 
       # tests/playwright：用 Playwright fixture 写的用例
       - run: pnpm test:playwright
+
+      # 打包全部 npm 包，像外部用户一样用 npm 安装到新目录，确认 wxa-runner dev 能启动、用上内置基础库
+      - run: node scripts/release.mjs --dry-run

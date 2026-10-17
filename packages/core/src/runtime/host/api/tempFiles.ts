@@ -33,3 +33,19 @@ export function tempFileType(name: string, mimeType: string, fallback: string): 
   const fromType = /^[a-z]+\/([a-z\d]+)\s*(;|$)/i.exec(mimeType)?.[1];
   return (fromName || fromType || fallback).toLowerCase();
 }
+
+/** 是不是开发服务器上的临时文件，保存的文件（wx.saveFile）也存在这里 */
+export function isTempFile(filePath: unknown): filePath is string {
+  return typeof filePath === 'string' && filePath.startsWith(`${location.origin}${TEMP_DIR}/`);
+}
+
+/** @returns 文件大小（字节），文件不存在时为 null */
+export async function tempFileSize(url: string): Promise<number | null> {
+  const res = await fetch(url, { method: 'HEAD' });
+  return res.ok ? Number(res.headers.get('content-length')) : null;
+}
+
+/** 文件不存在时什么也不做 */
+export async function removeTempFile(url: string): Promise<void> {
+  await fetch(url, { method: 'DELETE' });
+}

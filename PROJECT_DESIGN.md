@@ -324,6 +324,7 @@ navigateTo(url)
 | media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
 | webView | web-view 组件的网页视图，见下文「原生组件」 |
+| savedFiles | 保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
 | misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志）、临时文件、登录等开放接口的模拟数据、剪贴板 |
 | 路由 | 由 Host 实现 |
 
@@ -366,6 +367,10 @@ navigateTo(url)
   和真机一样，两种来源都可选时先弹菜单。浏览器只允许在用户点击后的几秒内打开文件选择框（页面里的点击也算，会传到宿主页），
   没有经过点击就调用时也先弹菜单，用户点菜单就是一次点击；否则选择框打不开，回调永远不来。
   `chooseMedia` 只支持图片。`previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
+- **保存的文件**：`getFileInfo` 向开发服务器查临时文件的大小（不返回 digest）。`saveFile` 和真机一样把临时文件存成新文件、删掉原来的，
+  新文件也在开发服务器上，image 能直接显示。保存记录写在 Storage 里，同样按 appid 隔离、整页刷新后还在；开发服务器重启后文件没了，
+  记录随之失效，`getSavedFileInfo` 报文件不存在，Painter 等用它做缓存的库会重新下载。FileSystemManager 的 `saveFile`
+  指定 `filePath` 时直接失败：那是内存文件系统，存不了图片等二进制内容；`saveFileSync` 没有实现
 
 #### 伴生 SDK 子包
 

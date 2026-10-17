@@ -12,6 +12,7 @@ import { createMiscApis } from './api/misc';
 import { createNetworkApis, RequestLog } from './api/network';
 import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
+import { createSavedFileApis } from './api/savedFiles';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
 import { createSystemApis } from './api/system';
 import { tempFileRootPath } from './api/tempFiles';
@@ -433,6 +434,7 @@ export class Host implements HostApi {
       reLaunch: routeApi(args => this.reLaunch(args.url)),
       switchTab: routeApi(args => this.switchTab(args.url)),
       ...createStorageApis(this.storage),
+      ...createSavedFileApis(this.storage),
       ...createSystemApis({
         device: this.device,
         baseLibVersion: this.info.baseLibVersion,

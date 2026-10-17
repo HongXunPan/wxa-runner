@@ -117,7 +117,7 @@ wxa-runner/
 │   │               ├── api/           # 原生 API：storage / system / network / ui / media / picker / webView / misc + 注册表
 │   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器、图片预览、文件选择框
 │   │
-│   ├── cli/bin/wxa-runner.js          # @open-wxa/wxa-runner-cli
+│   ├── cli/bin/wxa-runner.js          # wxa-runner：命令行（npm 包名不带 scope，npx wxa-runner 直接可用）
 │   │
 │   └── playwright/                    # @open-wxa/wxa-runner-playwright：Playwright fixture
 │       └── src/

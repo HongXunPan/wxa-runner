@@ -10,7 +10,7 @@ const program = new Command();
 program
   .name('wxa-runner')
   .description('在浏览器中用官方基础库运行微信小程序')
-  .version('0.1.0');
+  .version(require('../package.json').version);
 
 program
   .command('dev <project-path>')

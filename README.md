@@ -5,11 +5,11 @@
 [English](./README.en.md) · 中文
 
 ```bash
-wxa-runner dev ./dist/dev/mp-weixin   # 原生小程序目录，或 uni-app / Taro 编译产物
+npx wxa-runner dev ./dist/dev/mp-weixin   # 原生小程序目录，或 uni-app / Taro 编译产物
 # → http://localhost:3000
 ```
 
-目前只支持基础库 3.7.0 及以下，还没有发布到 npm。其他限制见[已知限制](#已知限制)。
+目前只支持基础库 3.7.0 及以下。其他限制见[已知限制](#已知限制)。
 
 ## 为什么用 wxa-runner
 
@@ -24,13 +24,10 @@ wxa-runner dev ./dist/dev/mp-weixin   # 原生小程序目录，或 uni-app / Ta
 
 ## 快速开始
 
-需要 Node.js ≥ 18、pnpm ≥ 8。还没有发布到 npm（[#3](https://github.com/open-wxa/wxa-runner/issues/3)），先从源码构建：
+需要 Node.js ≥ 18。在小程序目录（`project.config.json` 所在目录，或 uni-app / Taro 编译出的 `mp-weixin` 目录）里运行：
 
 ```bash
-git clone https://github.com/open-wxa/wxa-runner.git
-cd wxa-runner
-pnpm install && pnpm build
-node packages/cli/bin/wxa-runner.js dev examples/showcase --open
+npx wxa-runner dev . --open
 ```
 
 ```
@@ -38,11 +35,15 @@ node packages/cli/bin/wxa-runner.js dev examples/showcase --open
 
   wxa-runner 已启动
   地址      http://localhost:3000
-  项目      /path/to/wxa-runner/examples/showcase
+  项目      /path/to/my-app
   基础库    3.7.0
 ```
 
+经常用或要在 CI 里跑，装成开发依赖：`pnpm add -D wxa-runner`（或 `npm i -D wxa-runner`）。
+
 基础库和编译器不用另外准备：本机有微信开发者工具就用它的，没有就用随依赖安装的内置版本。
+内置基础库从 GitHub 安装（[wxa-baselib](https://github.com/open-wxa/wxa-baselib)），需要本机有 git、能访问 github.com；
+访问不了时安装不会报错，只是没有内置基础库，在没有开发者工具的机器上启动会提示找不到基础库。
 命令选项和环境变量见 [docs/cli.md](./docs/cli.md)。
 
 ## 用法
@@ -119,7 +120,7 @@ test('提交后跳转到结果页', async ({ miniProgram }) => {
 
 ## 参与开发
 
-见 [CONTRIBUTING.md](./CONTRIBUTING.md)。欢迎提交 Issue 和 PR。
+从源码构建、运行示例和测试见 [CONTRIBUTING.md](./CONTRIBUTING.md)。欢迎提交 Issue 和 PR。
 
 ## 致谢
 

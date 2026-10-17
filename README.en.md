@@ -5,11 +5,11 @@
 English · [中文](./README.md)
 
 ```bash
-wxa-runner dev ./dist/dev/mp-weixin   # a native mini program, or uni-app / Taro build output
+npx wxa-runner dev ./dist/dev/mp-weixin   # a native mini program, or uni-app / Taro build output
 # → http://localhost:3000
 ```
 
-Only base library 3.7.0 and below is supported, and the package is not on npm yet. See [Known limitations](#known-limitations) for the rest.
+Only base library 3.7.0 and below is supported. See [Known limitations](#known-limitations) for the rest.
 
 ## Why wxa-runner
 
@@ -24,13 +24,10 @@ It does not replace DevTools: previewing, uploading and on-device debugging stil
 
 ## Quick start
 
-Requires Node.js ≥ 18 and pnpm ≥ 8. Not on npm yet ([#3](https://github.com/open-wxa/wxa-runner/issues/3)), so build from source:
+Requires Node.js ≥ 18. Run it in the mini program directory (where `project.config.json` is, or the `mp-weixin` directory a uni-app / Taro build produces):
 
 ```bash
-git clone https://github.com/open-wxa/wxa-runner.git
-cd wxa-runner
-pnpm install && pnpm build
-node packages/cli/bin/wxa-runner.js dev examples/showcase --open
+npx wxa-runner dev . --open
 ```
 
 ```
@@ -38,11 +35,15 @@ node packages/cli/bin/wxa-runner.js dev examples/showcase --open
 
   wxa-runner 已启动
   地址      http://localhost:3000
-  项目      /path/to/wxa-runner/examples/showcase
+  项目      /path/to/my-app
   基础库    3.7.0
 ```
 
+For regular use or CI, add it as a dev dependency: `pnpm add -D wxa-runner` (or `npm i -D wxa-runner`).
+
 The CLI currently prints in Chinese. No separate setup for the base library or the compiler: wxa-runner uses WeChat DevTools' copies when installed, and bundled ones installed as dependencies otherwise.
+The bundled base library ([wxa-baselib](https://github.com/open-wxa/wxa-baselib)) installs from GitHub and needs git and access to github.com.
+If GitHub is unreachable, installation still succeeds without it, and on a machine without DevTools wxa-runner then reports that no base library was found.
 See [docs/cli.md](./docs/cli.md) (in Chinese) for command options and environment variables.
 
 ## Usage
@@ -119,7 +120,7 @@ Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) (in Chinese). Issues and PRs are welcome.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) (in Chinese) for building from source, running the examples and testing. Issues and PRs are welcome.
 
 ## Acknowledgements
 

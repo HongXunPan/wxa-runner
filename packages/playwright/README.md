@@ -44,7 +44,7 @@ test('提交订单后跳转到结果页', async ({ miniProgram }) => {
 
 ## 不用 fixture
 
-只用 Playwright 自带的 `webServer` 也能测试，在用例里通过 `window.__wxa_test_api__` 操作：
+只用 Playwright 自带的 `webServer` 也能测试（先装上命令行：`pnpm add -D wxa-runner`），在用例里通过 `window.__wxa_test_api__` 操作：
 
 ```ts
 // playwright.config.ts

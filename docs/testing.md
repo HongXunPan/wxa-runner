@@ -10,9 +10,6 @@
 pnpm add -D @playwright/test @open-wxa/wxa-runner-playwright
 ```
 
-还没有发布到 npm，可以先链接本地仓库（需要先在仓库里 `pnpm build`）：
-`pnpm add -D link:<wxa-runner 仓库>/packages/playwright`。
-
 ```ts
 // playwright.config.ts，放在小程序项目目录（project.config.json 所在目录）
 import { defineConfig } from '@playwright/test';
@@ -86,7 +83,12 @@ test('提交订单后跳转到结果页', async ({ miniProgram }) => {
 
 ## 直接使用测试 API
 
-不装 fixture 时，用 Playwright 自带的 `webServer` 启动开发服务器，在用例里通过 `window.__wxa_test_api__` 操作：
+不装 fixture 时，用 Playwright 自带的 `webServer` 启动开发服务器，在用例里通过 `window.__wxa_test_api__` 操作。
+先装上命令行和类型：
+
+```bash
+pnpm add -D @playwright/test wxa-runner @open-wxa/wxa-runner-core
+```
 
 ```ts
 // playwright.config.ts
@@ -198,10 +200,5 @@ await chooser.setFiles('fixtures/avatar.png');
 
 用 fixture 时不需要额外配置。直接使用测试 API 时，示例第一行的引用为 `window.__wxa_test_api__` 提供类型，
 也可以写进 tsconfig 的 `compilerOptions.types`。需要把 `@open-wxa/wxa-runner-core` 加为开发依赖。
-还没有发布到 npm，可以链接本地仓库：
-
-```bash
-pnpm add -D link:<wxa-runner 仓库>/packages/core
-```
 
 编写 mock 时用到的 `ApiHandler`、`WxaTestApi` 等类型可以从 `@open-wxa/wxa-runner-core` 导入。

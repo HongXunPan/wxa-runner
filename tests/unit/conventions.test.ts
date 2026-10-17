@@ -26,6 +26,9 @@ describe('提交信息', () => {
     const messages = [
       'feat: 支持选图、预览与保存图片',
       'fix(compiler): 没装开发者工具时偶发 wcc 编译崩溃',
+      // 中文描述常以英文专有名词开头
+      'docs: README 不再把热更新列为选用理由',
+      'ci: GitHub Actions 在 Linux 上跑全部测试',
       'chore: release 0.2.3 (#26)',
       "Merge branch 'fix/wcc-split'：没装开发者工具时偶发 wcc 编译崩溃"
     ];

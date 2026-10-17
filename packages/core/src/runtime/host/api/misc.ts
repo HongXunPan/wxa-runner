@@ -6,7 +6,7 @@
  */
 
 import { ApiHandler, ApiResult, fail, ok } from './registry';
-import { saveTempFile } from './tempFiles';
+import { isTempFile, saveTempFile, tempFileSize } from './tempFiles';
 
 const DIR_MODE = 0o40755;
 const FILE_MODE = 0o100644;
@@ -137,6 +137,9 @@ export function createMiscApis(appid: string, options?: MiscApiOptions): Record<
     unlink: (args, { api }) => guard(api, () => fs.remove(args.filePath, { dir: false })),
     rmdir: (args, { api }) => guard(api, () => fs.remove(args.dirPath, { dir: true, recursive: !!args.recursive })),
     getFileInfo: (args, { api }) => {
+      if (isTempFile(args.filePath)) {
+        return tempFileSize(args.filePath).then(size => (size === null ? fail(api, 'file not exist') : ok(api, { size })));
+      }
       const node = fs.stat(args.filePath);
       return node ? ok(api, { size: node.data.length }) : fail(api, 'file not exist');
     }

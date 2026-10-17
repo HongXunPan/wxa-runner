@@ -5,12 +5,14 @@
  * uploadFile 也能直接读取。
  */
 
+const TEMP_DIR = '/__wxa__/tmp';
+
 /**
  * @param type 扩展名（如 png），读取时按它返回 Content-Type
  * @throws 开发服务器拒绝保存时，带上它给出的原因（如扩展名不合法）
  */
 export async function saveTempFile(data: BodyInit, type: string): Promise<string> {
-  const res = await fetch(`/__wxa__/tmp?type=${encodeURIComponent(type)}`, { method: 'POST', body: data });
+  const res = await fetch(`${TEMP_DIR}?type=${encodeURIComponent(type)}`, { method: 'POST', body: data });
   if (!res.ok) throw new Error(await res.text());
   const { url } = await res.json();
   return url;
@@ -21,4 +23,20 @@ export function tempFileType(name: string, mimeType: string, fallback: string): 
   const fromName = /\.([a-z\d]+)$/i.exec(name)?.[1];
   const fromType = /^[a-z]+\/([a-z\d]+)\s*(;|$)/i.exec(mimeType)?.[1];
   return (fromName || fromType || fallback).toLowerCase();
+}
+
+/** 是不是开发服务器上的临时文件，保存的文件（wx.saveFile）也存在这里 */
+export function isTempFile(filePath: unknown): filePath is string {
+  return typeof filePath === 'string' && filePath.startsWith(`${location.origin}${TEMP_DIR}/`);
+}
+
+/** @returns 文件大小（字节），文件不存在时为 null */
+export async function tempFileSize(url: string): Promise<number | null> {
+  const res = await fetch(url, { method: 'HEAD' });
+  return res.ok ? Number(res.headers.get('content-length')) : null;
+}
+
+/** 文件不存在时什么也不做 */
+export async function removeTempFile(url: string): Promise<void> {
+  await fetch(url, { method: 'DELETE' });
 }

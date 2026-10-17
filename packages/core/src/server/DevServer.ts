@@ -11,7 +11,7 @@
  *   /__wxa__/page-styles.js    渲染层的样式（热更新时重新下发）
  *   /__baselib__/*             官方基础库
  *   /__wxa__/proxy?url=        网络代理
- *   /__wxa__/tmp               临时文件：POST ?type=png 保存，返回可直接访问的地址
+ *   /__wxa__/tmp               临时文件：POST ?type=png 保存，返回可直接访问的地址；对该地址 HEAD 查大小、DELETE 删除
  *   /__wxa__/region/<kind>     地区选择器用的行政区划数据（districts / streets），取自本机开发者工具
  *   /__wxa__/api/*             真实登录（--real-login）：wx.login 的 code、手机号，只允许本机访问
  *   /__wxa__/ws                文件变化通知：热更新（hot）或整页刷新（reload）
@@ -294,6 +294,9 @@ export class DevServer {
         return;
       }
       res.type(path.extname(req.params.name)).send(data);
+    });
+    app.delete('/__wxa__/tmp/:name', (req, res) => {
+      res.status(this.tempFiles.delete(req.params.name) ? 204 : 404).end();
     });
 
     if (this.options.realLogin) app.use('/__wxa__/api', realLoginRouter(this.project.appid));

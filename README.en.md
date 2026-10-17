@@ -15,7 +15,6 @@ Only base library 3.7.0 and below is supported. See [Known limitations](#known-l
 
 - **Matches the real thing**: runs the mini program build output directly; rendering, components, `setData` and lifecycles are WeChat's official base library code, not a framework's H5 reimplementation
 - **Headless E2E**: test in the browser with Playwright instead of remote-controlling DevTools; runs headless in CI, and needs no DevTools on Linux
-- **Hot reload that keeps state**: edits to WXML, WXSS and JS apply in place without a page refresh; the page stack and global state survive, so there is no clicking back to where you were
 - **Familiar debugging tools**: breakpoints, network requests and the DOM in Chrome DevTools
 - **Skip what a browser cannot do**: seed the login state, mock native APIs and intercept requests in setup, without touching app code
 - **Open any page directly**: add `?path=pages/detail/detail&id=1` to the URL to land on a page during development and in tests

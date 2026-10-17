@@ -95,6 +95,18 @@ describe.skipIf(!ready)('DevServer', () => {
     expect((await get('/__wxa__/tmp/missing.jpg')).status).toBe(404);
   });
 
+  it('临时文件可以只查大小，删除后访问不到', async () => {
+    const saved = await fetch(base + '/__wxa__/tmp?type=txt', { method: 'POST', body: Buffer.from('hello') });
+    const { url } = await saved.json();
+
+    const head = await fetch(url, { method: 'HEAD' });
+    expect(head.headers.get('content-length')).toBe('5');
+
+    expect((await fetch(url, { method: 'DELETE' })).status).toBe(204);
+    expect((await fetch(url)).status).toBe(404);
+    expect((await fetch(url, { method: 'DELETE' })).status).toBe(404);
+  });
+
   it.skipIf(!findRegionDataFile('districts'))('地区选择器用的行政区划数据取自本机开发者工具', async () => {
     const districts = await get('/__wxa__/region/districts');
     expect(districts.headers.get('content-type')).toContain('text/plain');

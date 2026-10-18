@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMapApis } from '../../packages/core/src/runtime/host/api/map';
 import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
-import { ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
+import { ApiRegistry, ApiResult } from '../../packages/core/src/runtime/host/api/registry';
 
 describe('地图组件的定位', () => {
   // 基础库的地图网页实现在开发者工具里要当前位置时调 private_geolocation，把结果当作腾讯位置服务定位接口返回的 JSON 文本解析
@@ -22,7 +22,7 @@ describe('地图组件的定位', () => {
 
   it('地图要当前位置时，拿到和 wx.getLocation 相同的坐标', async () => {
     const { api, locate } = setup();
-    const location = await api.invoke('getLocation', { type: 'gcj02' }, { api: 'getLocation', from: 'service', webviewId: 1 });
+    const location = await api.invoke('getLocation', { type: 'gcj02' }, { api: 'getLocation', from: 'service', webviewId: 1 }) as ApiResult;
     expect(await locate()).toEqual({ lat: location.latitude, lng: location.longitude });
   });
 

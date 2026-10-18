@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
 import { createNetworkApis } from '../../packages/core/src/runtime/host/api/network';
-import { ApiHandler, ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
+import { ApiHandler, ApiRegistry, ApiResult } from '../../packages/core/src/runtime/host/api/registry';
 import { createSystemApis } from '../../packages/core/src/runtime/host/api/system';
 import { createUiApis } from '../../packages/core/src/runtime/host/api/ui';
 import type { PhoneShell } from '../../packages/core/src/runtime/host/ui/PhoneShell';
@@ -363,7 +363,7 @@ describe('真实登录（--real-login）', () => {
     const onRealLoginFail = vi.fn();
     const registry = new ApiRegistry();
     registry.register(createMiscApis('wx1', { realLogin: true, onRealLoginFail }));
-    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }), fetchMock, onRealLoginFail };
+    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }) as Promise<ApiResult>, fetchMock, onRealLoginFail };
   }
 
   const json = (body: object, status = 200) => new Response(JSON.stringify(body), { status });

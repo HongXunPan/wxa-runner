@@ -9,6 +9,7 @@ import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '.
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createAudioApis } from './api/audio';
 import { createLibFileApis } from './api/libFiles';
+import { createMapApis } from './api/map';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis, RequestLog } from './api/network';
@@ -127,14 +128,14 @@ export class Host implements HostApi {
   invoke(kind: FrameKind, win: Window, api: string, args: unknown, callback?: InvokeCallback) {
     const webviewId = kind === 'webview' ? this.webviewIdOf(win) : this.currentPage()?.id ?? 0;
     const result = this.api.invoke(api, args, { api, from: kind, webviewId });
-    const deliver = (res: ApiResult) => {
+    const deliver = (res: ApiResult | string) => {
       if (callback) callback(cloneNativeInto(kind === 'service' ? this.serviceWindow()! : win, res));
     };
 
     if (result && typeof (result as Promise<ApiResult>).then === 'function') {
-      (result as Promise<ApiResult>).then(deliver);
+      (result as Promise<ApiResult | string>).then(deliver);
     } else {
-      deliver(result as ApiResult);
+      deliver(result as ApiResult | string);
     }
   }
 
@@ -450,6 +451,7 @@ export class Host implements HostApi {
         onRequest: request => this.requests.add(request)
       }),
       ...createAudioApis({ emit: (event, data) => this.emitToService(event, data) }),
+      ...createMapApis(this.api),
       ...createLibFileApis({ windowOf: webviewId => this.pages.get(webviewId)?.win }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMediaApis({

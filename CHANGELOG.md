@@ -1,5 +1,20 @@
 # 更新日志
 
+## [0.3.0](https://github.com/open-wxa/wxa-runner/compare/v0.2.5...v0.3.0) (2026-10-18)
+
+
+### 新功能
+
+* 3.10.1 起的基础库上，带经纬度的 moveToLocation 能移动地图 ([15ba22b](https://github.com/open-wxa/wxa-runner/commit/15ba22bb52a5500f27f61efc3427459cae77f551))
+* map 组件的 moveToLocation 能用，地图上的当前位置就是 wx.getLocation 的位置（[#35](https://github.com/open-wxa/wxa-runner/issues/35)） ([78b2fa7](https://github.com/open-wxa/wxa-runner/commit/78b2fa7387eb0fc6f6b7499dfaaa05227bc784b3))
+
+
+### 问题修复
+
+* 2.32.3 上 chooseImage、authorize、getLocation 等要做隐私检查的接口能收到回调（[#36](https://github.com/open-wxa/wxa-runner/issues/36)） ([ccf47de](https://github.com/open-wxa/wxa-runner/commit/ccf47deac9fc52862b80bde772111fb0145d51d3))
+* Playwright 里 route 的函数和 requests() 能拿到小程序发出的二进制请求体 ([2d5ab5f](https://github.com/open-wxa/wxa-runner/commit/2d5ab5f560b1d48f8e6b86db04c004ef47490558))
+* wx.request 按 responseType: arraybuffer 拿到 ArrayBuffer，WebSocket 能收到二进制消息（[#34](https://github.com/open-wxa/wxa-runner/issues/34)） ([366521a](https://github.com/open-wxa/wxa-runner/commit/366521a6fa0378355de9d1a16d3b1210ebaeec56))
+
 ## [0.2.5](https://github.com/open-wxa/wxa-runner/compare/v0.2.4...v0.2.5) (2026-10-18)
 
 

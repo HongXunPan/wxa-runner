@@ -7,7 +7,7 @@
  */
 
 import type { FrameLocator, Page } from '@playwright/test';
-import type { ApiContext, ApiResult, FrameError, MockResponse, WxaTestApi } from '@open-wxa/wxa-runner-core';
+import type { ApiContext, ApiResult, FrameError, MockResponse, RecordedRequest, WxaTestApi } from '@open-wxa/wxa-runner-core';
 import type {} from '@open-wxa/wxa-runner-core/test-api';
 import { MiniProgramRequest, withBody } from './request';
 
@@ -110,6 +110,10 @@ function installInPage({ bridge, binaryBody }: { bridge: string; binaryBody: str
     const base64 = response?.body?.[binaryBody];
     return typeof base64 === 'string' ? { ...response, body: Uint8Array.from(atob(base64), char => char.charCodeAt(0)) } : response;
   };
+  // 传给 Node 的 ArrayBuffer 会变成 {}，Uint8Array 能保留，到 Node 里再换回 ArrayBuffer（见 fromPage）
+  const toNode = (request: any) => (Object.prototype.toString.call(request?.data) === '[object ArrayBuffer]'
+    ? { ...request, data: new Uint8Array(request.data) }
+    : request);
   const replay = (api: WxaTestApi, operations: Operation[]) => {
     for (const op of operations) {
       if (op.type === 'mock') {
@@ -118,7 +122,7 @@ function installInPage({ bridge, binaryBody }: { bridge: string; binaryBody: str
         api.unmock(op.api);
       } else if (op.type === 'route') {
         api.route(op.pattern, op.handler
-          ? async (request: unknown) => decodeBody(await callNode('call', op.handler, [request]))
+          ? async (request: unknown) => decodeBody(await callNode('call', op.handler, [toNode(request)]))
           : decodeBody(op.response));
       } else {
         api.unroute(op.pattern);
@@ -126,6 +130,7 @@ function installInPage({ bridge, binaryBody }: { bridge: string; binaryBody: str
     }
   };
   (window as any).__wxa_playwright_replay__ = replay;
+  (window as any).__wxa_playwright_requests__ = (pattern?: string) => window.__wxa_test_api__.requests(pattern).map(toNode);
   window.__wxa_before_launch__ = async api => replay(api, await callNode('operations'));
 }
 
@@ -139,6 +144,13 @@ function encodeBinaryBody<T extends MockResponse | void>(response: T): T {
   if (!(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body)) return response;
   const bytes = ArrayBuffer.isView(body) ? Buffer.from(body.buffer, body.byteOffset, body.byteLength) : Buffer.from(body);
   return { ...response, body: { [BINARY_BODY]: bytes.toString('base64') } };
+}
+
+/** 小程序发出的请求传到 Node：二进制请求体经 Uint8Array 传过来（见 installInPage 的 toNode），换回和浏览器里一样的 ArrayBuffer */
+function fromPage(request: RecordedRequest): MiniProgramRequest {
+  const { data } = request;
+  if (!(data instanceof Uint8Array)) return withBody(request);
+  return withBody({ ...request, data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) });
 }
 
 /** 等小程序启动完成；启动失败时返回模拟器上显示的错误 */
@@ -206,12 +218,11 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
     }, [name, args] as const)) as unknown as ForwardedApi[K];
 
   const requests = async (pattern?: string) => {
-    const recorded = await page.evaluate(p => {
-      const api = window.__wxa_test_api__;
-      if (!api) throw new Error('小程序还没有打开，先调用 miniProgram.open()');
-      return api.requests(p);
+    const recorded: RecordedRequest[] = await page.evaluate(p => {
+      if (!window.__wxa_test_api__) throw new Error('小程序还没有打开，先调用 miniProgram.open()');
+      return (window as any).__wxa_playwright_requests__(p);
     }, pattern);
-    return recorded.map(withBody);
+    return recorded.map(fromPage);
   };
 
   const miniProgram: MiniProgram = {
@@ -248,7 +259,7 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
 
     async route(pattern, handler) {
       if (typeof handler !== 'function') return declare({ type: 'route', pattern, response: encodeBinaryBody(handler) });
-      const id = addHandler(`route('${pattern}')`, async ([request]) => encodeBinaryBody(await handler(withBody({ ...request, routedBy: pattern }))));
+      const id = addHandler(`route('${pattern}')`, async ([request]) => encodeBinaryBody(await handler(fromPage({ ...request, routedBy: pattern }))));
       return declare({ type: 'route', pattern, handler: id });
     },
 

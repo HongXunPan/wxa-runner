@@ -550,7 +550,8 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - `network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体：宿主在匹配之前记录每个
   `wx.request`，`requests()` / `waitForRequest()` 读取
 - Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象。
-  这个通道的返回值传到浏览器时，Buffer 等二进制会变成普通对象，所以 route 的二进制响应体先转成 base64、到浏览器里再还原
+  这个通道的返回值传到浏览器时，Buffer 等二进制会变成普通对象，所以 route 的二进制响应体先转成 base64、到浏览器里再还原；
+  反过来浏览器传给 Node 的 ArrayBuffer 会变成 `{}`（`page.evaluate` 的返回值也是），小程序发出的二进制请求体包成 Uint8Array 传过去再换回
 - 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里按顺序重放
   Node 侧记下的 mock / unmock / route / unroute，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后状态不变
 

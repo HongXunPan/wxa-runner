@@ -19,6 +19,8 @@ const LOOPBACK_ADDRESSES = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
 const ERROR_HINTS: Record<number, string> = {
+  // 40001：开发者工具刷新过 ticket，旧的随即作废
+  40001: '（登录态已失效，请在微信开发者工具里重新登录）',
   40029: '（登录态已失效，请在微信开发者工具里重新登录）',
   85023: '（当前微信账号不是该小程序的开发者）'
 };
@@ -39,9 +41,12 @@ export function requireUsableTicket(ticket: DeveloperTicket | null): string {
 /**
  * @param findTicket 每次请求都重新查找：开发者工具重新登录、切换账号后不用重启服务器
  */
-export function realLoginRouter(appid: string, findTicket: () => DeveloperTicket | null = findDeveloperTicket): Router {
+export function realLoginRouter(
+  appid: string,
+  findTicket: () => DeveloperTicket | null | Promise<DeveloperTicket | null> = findDeveloperTicket
+): Router {
   const callDevLogic = async (endpoint: string, body: object) => {
-    const query = new URLSearchParams({ appid, newticket: requireUsableTicket(findTicket()), clientversion: CLIENT_VERSION });
+    const query = new URLSearchParams({ appid, newticket: requireUsableTicket(await findTicket()), clientversion: CLIENT_VERSION });
     const response = await fetch(`${DEV_LOGIC}/${endpoint}?${query}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

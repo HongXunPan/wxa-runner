@@ -38,4 +38,5 @@ wxa-runner baselib extract [version]  解包基础库到 ~/.wxa-runner/baselib�
 | `WXA_BASELIB` | 没有用 `--baselib` 指定时使用的基础库版本 |
 | `WXA_WCC` / `WXA_WCSC` | 直接指定编译器，优先于开发者工具和 miniprogram-compiler |
 | `WECHAT_DEV_TICKET` | `--real-login` 使用的开发者 ticket，优先于开发者工具的登录态 |
+| `WECHAT_DEVTOOLS_CLI_TOKEN` | 开发者工具设置了「CLI 访问令牌」时，`--real-login` 调用开发者工具命令行要用它 |
 | `WXA_*` | 传给 setup 文件，见 [setup.md](./setup.md) |

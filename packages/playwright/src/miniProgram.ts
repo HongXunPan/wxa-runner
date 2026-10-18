@@ -7,7 +7,7 @@
  */
 
 import type { FrameLocator, Page } from '@playwright/test';
-import type { ApiContext, ApiResult, FrameError, MockResponse, WxaTestApi } from '@open-wxa/wxa-runner-core';
+import type { ApiContext, ApiResult, FrameError, MockResponse, RecordedRequest, WxaTestApi } from '@open-wxa/wxa-runner-core';
 import type {} from '@open-wxa/wxa-runner-core/test-api';
 import { MiniProgramRequest, withBody } from './request';
 
@@ -88,6 +88,8 @@ export interface MiniProgramOptions {
 
 /** 浏览器调用 Node 的通道名 */
 const BRIDGE = '__wxa_playwright__';
+/** 二进制的拦截响应体在传给浏览器时换成 { [BINARY_BODY]: base64 }，见 encodeBinaryBody */
+const BINARY_BODY = '__wxa_binary_body__';
 const DEFAULT_REQUEST_TIMEOUT = 10000;
 
 /** 基础库同步调用的原生 API：wx.getWindowInfo、getDeviceInfo、getSystemInfoSync 等都同步调用 getSystemInfo */
@@ -101,9 +103,17 @@ type Operation =
   | { type: 'unroute'; pattern?: string };
 
 /** 在页面脚本之前执行（序列化后注入浏览器，只能引用自己的参数） */
-function installInPage(bridge: string) {
+function installInPage({ bridge, binaryBody }: { bridge: string; binaryBody: string }) {
   if (window !== window.top) return;
   const callNode = (...args: unknown[]) => (window as any)[bridge](...args);
+  const decodeBody = (response: any) => {
+    const base64 = response?.body?.[binaryBody];
+    return typeof base64 === 'string' ? { ...response, body: Uint8Array.from(atob(base64), char => char.charCodeAt(0)) } : response;
+  };
+  // 传给 Node 的 ArrayBuffer 会变成 {}，Uint8Array 能保留，到 Node 里再换回 ArrayBuffer（见 fromPage）
+  const toNode = (request: any) => (Object.prototype.toString.call(request?.data) === '[object ArrayBuffer]'
+    ? { ...request, data: new Uint8Array(request.data) }
+    : request);
   const replay = (api: WxaTestApi, operations: Operation[]) => {
     for (const op of operations) {
       if (op.type === 'mock') {
@@ -111,14 +121,36 @@ function installInPage(bridge: string) {
       } else if (op.type === 'unmock') {
         api.unmock(op.api);
       } else if (op.type === 'route') {
-        api.route(op.pattern, op.handler ? (request: unknown) => callNode('call', op.handler, [request]) : op.response!);
+        api.route(op.pattern, op.handler
+          ? async (request: unknown) => decodeBody(await callNode('call', op.handler, [toNode(request)]))
+          : decodeBody(op.response));
       } else {
         api.unroute(op.pattern);
       }
     }
   };
   (window as any).__wxa_playwright_replay__ = replay;
+  (window as any).__wxa_playwright_requests__ = (pattern?: string) => window.__wxa_test_api__.requests(pattern).map(toNode);
   window.__wxa_before_launch__ = async api => replay(api, await callNode('operations'));
+}
+
+/**
+ * 响应体是 Buffer、Uint8Array 等二进制时换成 base64，到了浏览器里再还原成 Uint8Array（installInPage 的 decodeBody）。
+ * page.evaluate 的参数能保留二进制，exposeFunction 的返回值不能：打开页面前声明的规则、Node 里函数的结果都经它传回浏览器，
+ * 到了浏览器里变成 { 0: …, 1: … } 这样的普通对象，会被当成 JSON 返回
+ */
+function encodeBinaryBody<T extends MockResponse | void>(response: T): T {
+  const body = response?.body;
+  if (!(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body)) return response;
+  const bytes = ArrayBuffer.isView(body) ? Buffer.from(body.buffer, body.byteOffset, body.byteLength) : Buffer.from(body);
+  return { ...response, body: { [BINARY_BODY]: bytes.toString('base64') } };
+}
+
+/** 小程序发出的请求传到 Node：二进制请求体经 Uint8Array 传过来（见 installInPage 的 toNode），换回和浏览器里一样的 ArrayBuffer */
+function fromPage(request: RecordedRequest): MiniProgramRequest {
+  const { data } = request;
+  if (!(data instanceof Uint8Array)) return withBody(request);
+  return withBody({ ...request, data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) });
 }
 
 /** 等小程序启动完成；启动失败时返回模拟器上显示的错误 */
@@ -164,7 +196,7 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
       throw error;
     }
   });
-  await page.addInitScript(installInPage, BRIDGE);
+  await page.addInitScript(installInPage, { bridge: BRIDGE, binaryBody: BINARY_BODY });
 
   /** 已经打开的页面上立即执行（规则写错等在这里报错），再记下来供之后加载页面时重放 */
   const declare = async (operation: Operation) => {
@@ -186,12 +218,11 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
     }, [name, args] as const)) as unknown as ForwardedApi[K];
 
   const requests = async (pattern?: string) => {
-    const recorded = await page.evaluate(p => {
-      const api = window.__wxa_test_api__;
-      if (!api) throw new Error('小程序还没有打开，先调用 miniProgram.open()');
-      return api.requests(p);
+    const recorded: RecordedRequest[] = await page.evaluate(p => {
+      if (!window.__wxa_test_api__) throw new Error('小程序还没有打开，先调用 miniProgram.open()');
+      return (window as any).__wxa_playwright_requests__(p);
     }, pattern);
-    return recorded.map(withBody);
+    return recorded.map(fromPage);
   };
 
   const miniProgram: MiniProgram = {
@@ -227,8 +258,8 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
     unmock: api => declare({ type: 'unmock', api }),
 
     async route(pattern, handler) {
-      if (typeof handler !== 'function') return declare({ type: 'route', pattern, response: handler });
-      const id = addHandler(`route('${pattern}')`, ([request]) => handler(withBody({ ...request, routedBy: pattern })));
+      if (typeof handler !== 'function') return declare({ type: 'route', pattern, response: encodeBinaryBody(handler) });
+      const id = addHandler(`route('${pattern}')`, async ([request]) => encodeBinaryBody(await handler(fromPage({ ...request, routedBy: pattern }))));
       return declare({ type: 'route', pattern, handler: id });
     },
 

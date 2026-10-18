@@ -20,8 +20,11 @@ type RequestMatcher = (request: Pick<MockRequest, 'url' | 'method'>) => boolean;
 export interface MatchedRoute {
   /** 命中的规则，即添加时的写法 */
   pattern: string;
-  /** @throws 延迟期间 signal 被 abort 时，抛出 signal.reason */
-  respond(signal?: AbortSignal): Promise<{ statusCode: number; header: Record<string, string>; data: string }>;
+  /**
+   * 响应体原样是文本或二进制，小程序拿到哪种由请求的 responseType 决定
+   * @throws 延迟期间 signal 被 abort 时，抛出 signal.reason
+   */
+  respond(signal?: AbortSignal): Promise<{ statusCode: number; header: Record<string, string>; body: string | BufferSource }>;
 }
 
 export class RequestRoutes {
@@ -58,11 +61,11 @@ export class RequestRoutes {
         checkDelay(response.delay);
         if (response.delay) await sleep(response.delay, signal);
         const { body } = response;
-        const isText = typeof body === 'string' || body === undefined;
+        const isJson = body !== undefined && typeof body !== 'string' && !isBinary(body);
         return {
           statusCode: response.status ?? 200,
-          header: { ...(isText ? {} : { 'Content-Type': 'application/json' }), ...response.header },
-          data: body === undefined ? '' : isText ? (body as string) : JSON.stringify(body)
+          header: { ...(isJson ? { 'Content-Type': 'application/json' } : {}), ...response.header },
+          body: body === undefined ? '' : isJson ? JSON.stringify(body) : (body as string | BufferSource)
         };
       }
     };
@@ -81,6 +84,11 @@ export function compilePattern(pattern: string): RequestMatcher {
   const [method, url] = parts.length === 2 ? [parts[0].toUpperCase(), parts[1]] : [null, parts[0]];
   const regexp = globToRegExp(url);
   return request => (!method || method === request.method) && regexp.test(String(request.url).replace(/[?#].*$/, ''));
+}
+
+/** ArrayBuffer 和 Uint8Array 等视图（Node 的 Buffer 经 Playwright 传进来也是 Uint8Array），不论属于哪个 iframe */
+function isBinary(value: unknown): value is BufferSource {
+  return ArrayBuffer.isView(value) || Object.prototype.toString.call(value) === '[object ArrayBuffer]';
 }
 
 function checkDelay(delay: unknown) {

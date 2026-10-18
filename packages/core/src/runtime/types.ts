@@ -15,7 +15,7 @@ export interface FrameBridge {
   __dispatchSub(event: string, data: unknown, webviewId?: number): void;
 }
 
-export type InvokeCallback = (result: Record<string, unknown>) => void;
+export type InvokeCallback = (result: Record<string, unknown> | string) => void;
 
 /** 宿主暴露给 iframe 的接口（window.parent.__wxaHost） */
 export interface HostApi {

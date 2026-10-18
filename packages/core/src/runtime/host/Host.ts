@@ -9,6 +9,7 @@ import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '.
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createAudioApis } from './api/audio';
 import { createLibFileApis } from './api/libFiles';
+import { createMapApis, MapOperations } from './api/map';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis, RequestLog } from './api/network';
@@ -54,6 +55,7 @@ export class Host implements HostApi {
   readonly storage: MiniProgramStorage;
   /** setup 和测试 API 声明的请求拦截 */
   readonly routes = new RequestRoutes();
+  private readonly mapOperations = new MapOperations((webviewId, event, data) => this.publishToPages(event, data, [webviewId]));
   private service: { win: Window; bridge: FrameBridge } | null = null;
   /** 新版基础库的业务子上下文；旧版基础库业务代码直接在逻辑层 iframe 里 */
   private appContext: Window | null = null;
@@ -127,36 +129,41 @@ export class Host implements HostApi {
   invoke(kind: FrameKind, win: Window, api: string, args: unknown, callback?: InvokeCallback) {
     const webviewId = kind === 'webview' ? this.webviewIdOf(win) : this.currentPage()?.id ?? 0;
     const result = this.api.invoke(api, args, { api, from: kind, webviewId });
-    const deliver = (res: ApiResult) => {
+    const deliver = (res: ApiResult | string) => {
       if (callback) callback(cloneNativeInto(kind === 'service' ? this.serviceWindow()! : win, res));
     };
 
     if (result && typeof (result as Promise<ApiResult>).then === 'function') {
-      (result as Promise<ApiResult>).then(deliver);
+      (result as Promise<ApiResult | string>).then(deliver);
     } else {
-      deliver(result as ApiResult);
+      deliver(result as ApiResult | string);
     }
   }
 
   publish(kind: FrameKind, win: Window, event: string, data: unknown, webviewIds?: number[]) {
     if (kind === 'service') {
-      // 不指定目标时发给所有页面：旧版 canvas 的绘制指令就是这样发的，由 canvasNumber 找到对应画布
-      const targets = webviewIds?.length ? webviewIds.map(id => this.pages.get(Number(id))) : this.livePages();
-      const message = event === 'canvasActionsChanged' ? withDrawableImages(data) : data;
-      for (const page of targets) {
-        page?.dispatch((bridge, target) => {
-          const payload = cloneInto(target, message);
-          queueMicrotask(() => bridge.__dispatchSub(event, payload, 0));
-        });
-      }
+      this.publishToPages(event, data, webviewIds);
       return;
     }
+    if (event === 'operateMapCallback' && this.mapOperations.receive(data)) return;
 
     const fromId = this.webviewIdOf(win);
     const service = this.service;
     if (!service) return;
     const payload = this.cloneForService(data);
     queueMicrotask(() => service.bridge.__dispatchSub(event, payload, fromId));
+  }
+
+  /** 不指定目标时发给所有页面：旧版 canvas 的绘制指令就是这样发的，由 canvasNumber 找到对应画布 */
+  private publishToPages(event: string, data: unknown, webviewIds?: number[]) {
+    const targets = webviewIds?.length ? webviewIds.map(id => this.pages.get(Number(id))) : this.livePages();
+    const message = event === 'canvasActionsChanged' ? withDrawableImages(data) : data;
+    for (const page of targets) {
+      page?.dispatch((bridge, target) => {
+        const payload = cloneInto(target, message);
+        queueMicrotask(() => bridge.__dispatchSub(event, payload, 0));
+      });
+    }
   }
 
   reportError(kind: FrameKind, webviewId: number, error: unknown) {
@@ -450,6 +457,7 @@ export class Host implements HostApi {
         onRequest: request => this.requests.add(request)
       }),
       ...createAudioApis({ emit: (event, data) => this.emitToService(event, data) }),
+      ...createMapApis({ registry: this.api, operations: this.mapOperations }),
       ...createLibFileApis({ windowOf: webviewId => this.pages.get(webviewId)?.win }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMediaApis({
@@ -484,7 +492,8 @@ export function cloneInto<T>(win: Window, value: T): T {
 const BUFFER_KEY = '__wxa_array_buffer__';
 
 /**
- * 原生接口的结果和事件交给 iframe：同 cloneInto，另外把 ArrayBuffer（readFile 读到的文件、下载的音频）复制成目标 realm 的。
+ * 原生接口的结果和事件交给 iframe：同 cloneInto，另外把 ArrayBuffer（readFile 读到的文件、按 arraybuffer 请求到的数据、
+ * WebSocket 的二进制消息）复制成目标 realm 的。
  * 只有原生接口会给出 ArrayBuffer；setData 等消息数据量大，仍走 cloneInto，省掉逐个字段的检查
  */
 function cloneNativeInto<T>(win: Window, value: T): T {

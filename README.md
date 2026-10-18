@@ -107,13 +107,15 @@ test('提交后跳转到结果页', async ({ miniProgram }) => {
 | 网络 | request、上传下载经代理转发（没有 CORS 限制），WebSocket |
 | 存储 | Storage、FileSystemManager 基本操作 |
 
-已在 uni-app（Vue 3）的真实项目上验证；基础库已验证 2.32.3、3.3.4、3.5.8、3.7.0，3.7.1 和 3.8.8 上全部测试通过。
+已在 uni-app（Vue 3）的真实项目上验证；基础库已验证 2.32.3、3.3.4、3.5.8、3.7.0，3.7.1 和 3.8.8 上全部测试也通过。
+CI 只覆盖内置的 3.7.0，其余版本在本机用 `WXA_BASELIB=<版本> pnpm test` 验证。
 
 ## 已知限制
 
 - 3.7.1 起的基础库不会自动选用，要用 `--baselib` 或 `WXA_BASELIB` 指定，启动时提示超出已验证的范围；内置基础库只有 3.7.0，新版本要先在开发者工具里下载
 - 没有实现的原生 API 会返回成功，测试中可以从 `errors()` 发现（见 [docs/testing.md](./docs/testing.md#注意事项)）
 - 不支持蓝牙等设备能力，`chooseMedia` 不能选视频
+- map 组件的 toScreenLocation、fromScreenLocation、地面覆盖物等 MapContext 方法在基础库的网页实现里没有，调用后不会回调（详见 [PROJECT_DESIGN.md](./PROJECT_DESIGN.md#原生组件)）
 - 不支持插件、分包异步化、Worker（[#10](https://github.com/open-wxa/wxa-runner/issues/10)）
 - 没有开发者工具时（如 Linux、CI）：只支持 x86-64；编译器版本较旧，模板运行时有少量差异（如单页最多 16000 个节点）；地区选择器不可用
 

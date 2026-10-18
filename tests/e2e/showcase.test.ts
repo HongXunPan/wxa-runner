@@ -57,7 +57,8 @@ describe.skipIf(!ready)('showcase 示例', () => {
 
   it('首页由官方基础库渲染：数据绑定、wxs、列表与条件渲染、rpx', async () => {
     const frame = await open();
-    expect(await frame.textContent('#greeting')).toBe('Hello from the official base library');
+    // text 组件读看得见的文字：3.3.x 及更早版本在隐藏的 span 里另存一份，textContent 会读到两遍
+    expect(await frame.innerText('#greeting')).toBe('Hello from the official base library');
     expect(await frame.textContent('#price')).toBe('价格：¥123.45');
     expect(await frame.locator('.item').count()).toBe(3);
     expect(await frame.textContent('#many')).toBe('共 3 项');
@@ -70,7 +71,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
     const frame = await open();
     await frame.click('wx-counter wx-button');
     await frame.waitForFunction(() => document.querySelector('#parent-count')!.textContent === '父页面收到：2');
-    expect(await frame.textContent('wx-counter .counter--label')).toBe('组件计数: 2');
+    expect(await frame.innerText('wx-counter .counter--label')).toBe('组件计数: 2');
   });
 
   it('showToast 与 showModal 由宿主渲染，modal 的结果回传给页面', async () => {

@@ -82,6 +82,34 @@ test('请求发出后马上取消拦截，已发出的请求仍由原来的函�
   expect(await sent).toEqual({ id: 'o-node' });
 });
 
+test('开发者用 Node 的 Buffer 作为拦截的响应，小程序按 arraybuffer 请求拿到同样的字节', async ({ miniProgram }) => {
+  // 打开前声明的在页面加载时从 Node 取回，打开后声明的直接传给页面，函数的结果从 Node 传回浏览器
+  await miniProgram.route('**/api/avatar', { body: Buffer.from([0x89, 0x50, 0xff]) });
+  await miniProgram.route('**/api/user.pb', () => ({ body: Buffer.from([0x08, 0x96, 0x01]) }));
+  await miniProgram.open();
+  await miniProgram.route('**/api/banner', { body: Buffer.from([0xff, 0xd8]) });
+
+  expect(await miniProgram.callPageMethod('download', 'https://api.example.com/api/avatar')).toBe('true 137,80,255');
+  expect(await miniProgram.callPageMethod('download', 'https://api.example.com/api/user.pb')).toBe('true 8,150,1');
+  expect(await miniProgram.callPageMethod('download', 'https://api.example.com/api/banner')).toBe('true 255,216');
+});
+
+test('小程序以 ArrayBuffer 作为请求体时，开发者在 Node 里拿到同样的字节', async ({ miniProgram }) => {
+  let sent: unknown;
+  await miniProgram.route('POST **/api/upload', request => {
+    sent = request.data;
+    return { body: 'ok' };
+  });
+  await miniProgram.open();
+
+  expect(await miniProgram.callPageMethod('uploadBytes', 'https://api.example.com/api/upload')).toBe('ok');
+  expect(sent).toBeInstanceOf(ArrayBuffer);
+  expect(new Uint8Array(sent as ArrayBuffer)).toEqual(new Uint8Array([0x89, 0x50, 0xff]));
+  const request = await miniProgram.waitForRequest('POST **/api/upload');
+  expect(request.data).toBeInstanceOf(ArrayBuffer);
+  expect(new Uint8Array(request.data as ArrayBuffer)).toEqual(new Uint8Array([0x89, 0x50, 0xff]));
+});
+
 test('只关心某个操作之后的请求时，先清空已记录的请求', async ({ miniProgram }) => {
   await miniProgram.route('POST **/api/orders', { status: 201, body: { id: 'o-1' } });
   await miniProgram.open();

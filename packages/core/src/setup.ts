@@ -65,7 +65,7 @@ export interface MockRequest {
   method: string;
   /** 请求头，基础库已补上默认的 content-type */
   header: Record<string, string>;
-  /** 基础库序列化后交给原生层的请求体，通常是 JSON 字符串 */
+  /** 基础库序列化后交给原生层的请求体，通常是 JSON 字符串；业务传的是 ArrayBuffer 时原样是 ArrayBuffer */
   data: unknown;
 }
 
@@ -73,7 +73,10 @@ export interface MockResponse {
   /** 默认 200 */
   status?: number;
   header?: Record<string, string>;
-  /** 字符串原样返回；其他值按 JSON 返回，小程序拿到的 res.data 是解析后的对象 */
+  /**
+   * 字符串原样返回；ArrayBuffer、Uint8Array 等（包括 Node 的 Buffer）按二进制返回；其他值按 JSON 返回。
+   * 小程序拿到的 res.data 和真机一样按请求的 responseType：arraybuffer 时是 ArrayBuffer，否则是文本，JSON 文本再解析成对象
+   */
   body?: unknown;
   /**
    * 模拟网络延迟（毫秒），默认 0。拦截的响应是瞬间返回的，比真机早到，

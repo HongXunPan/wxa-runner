@@ -53,6 +53,8 @@ export default defineSetup(({ env }) => ({
 
 - `wx.request` 不能用 `mock` 覆盖，要用 `network.routes`。命中的请求会在控制台打印 `[wxa-runner] 拦截请求`
 - 拦截的响应默认立即返回，比真机早到。业务代码在回调里假设「首页已经创建」之类时会出错，可以加 `delay`（毫秒）模拟网络耗时
+- `body` 是 ArrayBuffer、Uint8Array 等（Playwright 里也可以是 Node 的 Buffer）时按二进制返回。和真机一样，小程序拿到的 `res.data`
+  由请求的 `responseType` 决定：`arraybuffer` 时是 ArrayBuffer，否则是文本
 - `downloadFile`、`uploadFile`、`connectSocket` 暂不拦截
 
 ## 真实登录

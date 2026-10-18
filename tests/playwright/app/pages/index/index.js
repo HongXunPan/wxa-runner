@@ -49,6 +49,27 @@ Page({
     }));
   },
 
+  uploadBytes(url) {
+    return new Promise(resolve => wx.request({
+      url,
+      method: 'POST',
+      header: { 'content-type': 'application/octet-stream' },
+      data: new Uint8Array([0x89, 0x50, 0xff]).buffer,
+      success: res => resolve(res.data),
+      fail: err => resolve(err.errMsg)
+    }));
+  },
+
+  /** 按 arraybuffer 请求，返回「是不是 ArrayBuffer 字节列表」 */
+  download(url) {
+    return new Promise(resolve => wx.request({
+      url,
+      responseType: 'arraybuffer',
+      success: res => resolve(`${res.data instanceof ArrayBuffer} ${Array.from(new Uint8Array(res.data))}`),
+      fail: err => resolve(err.errMsg)
+    }));
+  },
+
   crashLater() {
     Promise.reject(new Error('页面里没有处理的错误'));
   }

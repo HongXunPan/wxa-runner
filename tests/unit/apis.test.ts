@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
 import { createNetworkApis } from '../../packages/core/src/runtime/host/api/network';
-import { ApiHandler, ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
+import { ApiHandler, ApiRegistry, ApiResult } from '../../packages/core/src/runtime/host/api/registry';
 import { createSystemApis } from '../../packages/core/src/runtime/host/api/system';
 import { createUiApis } from '../../packages/core/src/runtime/host/api/ui';
 import type { PhoneShell } from '../../packages/core/src/runtime/host/ui/PhoneShell';
@@ -203,6 +203,50 @@ describe('网络 API', () => {
     expect(recorded).toEqual([]);
   });
 
+  it('小程序按 responseType: arraybuffer 请求时，拿到服务器返回的原始字节，不按文本解码', async () => {
+    // 0x80、0xff 不是合法的 UTF-8，按文本解码会变成替换字符
+    const bytes = [0, 0x80, 0xff, 0x41];
+    const { apis, events } = setup(proxied(new Uint8Array(bytes), 200, { 'content-type': 'application/octet-stream' }));
+    const { requestTaskId } = call(apis, 'createRequestTask', { url: 'https://cdn.example.com/a.bin', responseType: 'arraybuffer' });
+
+    await vi.waitFor(() => expect(events.some(([, data]) => data.state === 'success')).toBe(true));
+    const success = events.find(([, data]) => data.state === 'success')![1];
+    expect(success).toMatchObject({ requestTaskId, statusCode: 200 });
+    expect(success.data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(success.data)).toEqual(new Uint8Array(bytes));
+  });
+
+  it('WebSocket 收到的二进制消息以 ArrayBuffer 交给小程序，文本消息仍是字符串', () => {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      static OPEN = 1;
+      readyState = 1;
+      binaryType = 'blob';
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      /** 服务器发来一条消息。和浏览器一样，binaryType 不是 arraybuffer 时二进制消息是 Blob */
+      receive(message: string | Uint8Array) {
+        if (typeof message === 'string') this.onmessage?.({ data: message });
+        else this.onmessage?.({ data: this.binaryType === 'arraybuffer' ? message.slice().buffer : new Blob([message.slice()]) });
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const events: Array<[string, any]> = [];
+    const apis = createNetworkApis({ emit: (event, data) => events.push([event, data]), defaultTimeout: () => 60000 });
+
+    const { socketTaskId } = call(apis, 'createSocketTask', { url: 'wss://chat.example.com' });
+    sockets[0].receive(new Uint8Array([0, 0x80, 0xff]));
+    sockets[0].receive('hello');
+
+    const messages = events.filter(([, data]) => data.state === 'message').map(([, data]) => data);
+    expect(messages.map(message => message.socketTaskId)).toEqual([socketTaskId, socketTaskId]);
+    expect(messages[0].data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(messages[0].data)).toEqual(new Uint8Array([0, 0x80, 0xff]));
+    expect(messages[1].data).toBe('hello');
+  });
+
   it('downloadFile 把下载的文件存成开发服务器上的临时文件，返回它的地址', async () => {
     const saved: Array<{ url: string; content: string }> = [];
     const { apis, events } = setup(proxied('file-content'));
@@ -239,6 +283,14 @@ describe('其它 API', () => {
     expect(call(apis, 'getAppContact', { keyPath: 'WxaAppInfo.Network.BizDomain' }).errMsg).toMatch(/^getAppContact:fail /);
     expect(call(apis, 'operateWXData', { data: { api_name: 'webapi_getwxabusinessconfig' } }).errMsg).toBe('operateWXData:ok');
     expect(call(apis, 'getAppContact', { keyPath: 'WxaAppInfo.Name' }).errMsg).toBe('getAppContact:ok');
+  });
+
+  it('基础库做隐私检查时拿到「不用弹窗、没有未授权的接口」，业务调用的接口照常执行', () => {
+    const res = call(apis, 'operateWXData', { data: { api_name: 'webapi_getwxauserprivacyauthinfo', data: { version: 3 } } });
+    expect(res.errMsg).toBe('operateWXData:ok');
+    expect(wxDataSeenByBaseLib(res)).toMatchObject({
+      action_code: 0, need_popup_scope_list: [], unauth_scope_list: [], wording: expect.any(Object)
+    });
   });
 
   it('开放接口返回可预测的模拟数据，支付明确失败', () => {
@@ -303,6 +355,12 @@ describe('读取代码包里的文件', () => {
   });
 });
 
+/** 基础库的 operateWXData 封装：data（对象或 JSON 文本）里的 data 是 JSON 文本，解析后才是接口返回的数据 */
+function wxDataSeenByBaseLib(result: { data?: unknown }): unknown {
+  const outer = typeof result.data === 'string' ? JSON.parse(result.data) : result.data as { data?: unknown } | undefined;
+  return typeof outer?.data === 'string' ? JSON.parse(outer.data) : undefined;
+}
+
 /** 基础库（WAWebview 的 getPhoneNumber）只从 JSON.parse(data) 里取 code，顶层的 code 会被丢掉 */
 function phoneCodeSeenByBaseLib(result: { data?: string }): string | undefined {
   return result.data ? JSON.parse(result.data).code : undefined;
@@ -319,7 +377,7 @@ describe('真实登录（--real-login）', () => {
     const onRealLoginFail = vi.fn();
     const registry = new ApiRegistry();
     registry.register(createMiscApis('wx1', { realLogin: true, onRealLoginFail }));
-    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }), fetchMock, onRealLoginFail };
+    return { result: registry.invoke(api, {}, { api, from: 'service', webviewId: 1 }) as Promise<ApiResult>, fetchMock, onRealLoginFail };
   }
 
   const json = (body: object, status = 200) => new Response(JSON.stringify(body), { status });

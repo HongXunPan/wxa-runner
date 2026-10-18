@@ -294,7 +294,8 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 | 原生 → 渲染层 | `WeixinJSBridge.on(event, cb)` | 原生组件的事件：`onMultiPickerViewChange`、`onWebviewStartLoad` / `onWebviewFinishLoad` |
 
 数据通过 `目标window.JSON.parse(JSON.stringify(data))` 在目标 iframe 的 realm 中重建，
-避免跨 realm 的 `instanceof Array` 判断失效。原生接口的结果和事件里可能有 ArrayBuffer（`readFile` 读到的文件、下载的音频），
+避免跨 realm 的 `instanceof Array` 判断失效。原生接口的结果和事件里可能有 ArrayBuffer（`readFile` 读到的文件、下载的音频、
+按 `arraybuffer` 请求到的数据、WebSocket 的二进制消息），
 JSON 会把它变成 `{}`，所以单独复制成目标 realm 的 ArrayBuffer；`setData` 等消息数据量大，不做这一步。
 
 > 与最初方案的差异：最初设计中的命令字 `APPSERVICE_PUBLISH` / `WEBVIEW_PUBLISH` / `APPSERVICE_INVOKE` /
@@ -325,7 +326,7 @@ navigateTo(url)
 | --- | --- |
 | storage | localStorage，按 appid 和 storageId 隔离；原样保存基础库序列化后的数据和 dataType；渲染层用的 GlobalStorage（cookie） |
 | system | 以模拟设备（默认 iPhone X，375×812 @3x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
-| network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理 |
+| network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理。`success` 的 data 按 `responseType` 是文本或 ArrayBuffer，被拦截的请求也一样；WebSocket 的二进制消息是 ArrayBuffer。基础库把业务传的 ArrayBuffer（请求体、WebSocket 消息）原样交给宿主，不经 `__nativeBuffers__` |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
 | media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
@@ -384,6 +385,18 @@ navigateTo(url)
   否则基础库把 waiting 当作暂停、不再更新进度。pause 由宿主在暂停时推送，不转发浏览器的 pause 事件（它在 stop 之后才异步派发，
   播到结尾时也会先派发一次）；stop 把进度归零引起的 seeking、seeked、canplay 也不推送。还没播放过时设置 startTime 立即生效，
   stop 后从头播放，都与基础库的 Web Audio 实现一致
+- **地图（map）**：基础库用腾讯地图 GL 网页 SDK 实现，SDK 和瓦片从腾讯的服务器加载，需要联网。MapContext 的方法经 `operateMap`
+  消息发给渲染层的 map 组件，结果经 `operateMapCallback` 发回，宿主照常转发。在 3.7.0 上用真实 SDK 逐个验证过：
+  getCenterLocation、getRegion、getScale、getRotate、getSkew、moveToLocation、includePoints、addMarkers、removeMarkers、
+  translateMarker、moveAlong、setCenterOffset、setBoundary、initMarkerCluster 能用；事件 tap、markertap、callouttap、labeltap、
+  regionchange（拖动时 begin / end，includePoints 等引起的 begin 的 causedBy 是基础库拼错的 `udpate`）、updated 能收到。
+  点标记点时 SDK 同时派发地图的点击，业务也会收到 tap（点到地名时还有 poitap）。
+  宿主要配合两处：map 组件要当前位置时（moveToLocation、show-location）调 `private_geolocation`，期望腾讯位置服务定位接口的 JSON 文本，
+  宿主返回 `getLocation` 的结果（能 mock），没有它时带经纬度的 moveToLocation 也失败；3.10.1 起带经纬度的 moveToLocation
+  改调原生的 `moveToMapLocation`，宿主照基础库的格式经 `operateMap` 转给当前页的 map 组件，等它的 `operateMapCallback` 再返回。
+  网页实现里没有处理、调用后不会回调的：toScreenLocation、fromScreenLocation、地面覆盖物（addGroundOverlay 等）、setLocMarkerIcon、
+  eraseLines、室内图、可视化图层；addArc、removeArc 返回 `not support on devtools`；openMapApp 返回成功，但不会打开地图 App。
+  e2e 把 SDK 换成替身（`tests/e2e/fixtures/tmap.js`），不依赖外网；`WXA_MAP_SDK=online` 时用真实 SDK 跑同样的用例
 - **按需加载的组件**：3.3.x、3.5.x 的 video 等组件放在单独的基础库文件里，渲染层用到时调 `loadLibFilesSync`。
   宿主同步读取文件，脚本在调用返回前于渲染层执行完（基础库在调用前后设置、清理 `window.__Behaviour` 等全局变量），
   各文件的内容按顺序放在 `__codes` 里交回，基础库从中取 CSS 自己插入。逻辑层也会调它加载伴生 SDK，那条路照旧只返回成功（见下文「伴生 SDK 子包」）
@@ -548,7 +561,9 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - `page.evaluate` 只读一次，跳转后要手动 `waitForPage`：`toHavePath` / `toHavePageData` 自动重试
 - `network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体：宿主在匹配之前记录每个
   `wx.request`，`requests()` / `waitForRequest()` 读取
-- Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象
+- Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象。
+  这个通道的返回值传到浏览器时，Buffer 等二进制会变成普通对象，所以 route 的二进制响应体先转成 base64、到浏览器里再还原；
+  反过来浏览器传给 Node 的 ArrayBuffer 会变成 `{}`（`page.evaluate` 的返回值也是），小程序发出的二进制请求体包成 Uint8Array 传过去再换回
 - 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里按顺序重放
   Node 侧记下的 mock / unmock / route / unroute，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后状态不变
 

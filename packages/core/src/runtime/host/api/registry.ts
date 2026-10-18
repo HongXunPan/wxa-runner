@@ -3,6 +3,7 @@
  *
  * 处理函数返回结果对象（可以是 Promise）。结果能同步得到时同步回调——
  * 基础库在一些非 Sync 结尾的 API（如带 type 参数的 getSystemInfo）上也依赖同步回调。
+ * 少数原生接口的结果是字符串，由基础库自己解析（如地图的 private_geolocation），原样交回。
  */
 
 import type { FrameKind } from '../../types';
@@ -16,7 +17,7 @@ export interface ApiContext {
   webviewId: number;
 }
 
-export type ApiHandler = (args: any, context: ApiContext) => ApiResult | void | Promise<ApiResult | void>;
+export type ApiHandler = (args: any, context: ApiContext) => ApiResult | string | void | Promise<ApiResult | string | void>;
 
 /** 基础库内部频繁调用、无需提示的 API */
 const SILENT_APIS = new Set([
@@ -54,7 +55,7 @@ export class ApiRegistry {
     else this.mocks.clear();
   }
 
-  invoke(api: string, args: any, context: ApiContext): ApiResult | Promise<ApiResult> {
+  invoke(api: string, args: any, context: ApiContext): ApiResult | string | Promise<ApiResult | string> {
     const handler = this.mocks.get(api) || this.handlers.get(api);
 
     if (!handler) {
@@ -71,12 +72,12 @@ export class ApiRegistry {
     try {
       const result = handler(args || {}, context);
       if (result && typeof (result as Promise<ApiResult>).then === 'function') {
-        return (result as Promise<ApiResult | void>).then(
+        return (result as Promise<ApiResult | string | void>).then(
           value => normalize(api, value),
           error => failure(api, error)
         );
       }
-      return normalize(api, result as ApiResult | void);
+      return normalize(api, result as ApiResult | string | void);
     } catch (error) {
       return failure(api, error);
     }
@@ -91,7 +92,8 @@ export function fail(api: string, reason: string, extra: ApiResult = {}): ApiRes
   return { ...extra, errMsg: `${api}:fail ${reason}` };
 }
 
-function normalize(api: string, result: ApiResult | void): ApiResult {
+function normalize(api: string, result: ApiResult | string | void): ApiResult | string {
+  if (typeof result === 'string') return result;
   if (!result) return { errMsg: `${api}:ok` };
   return result.errMsg ? result : { ...result, errMsg: `${api}:ok` };
 }

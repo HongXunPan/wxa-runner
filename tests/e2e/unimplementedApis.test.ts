@@ -85,5 +85,38 @@ describe.skipIf(!e2eReady)('基础库内部调用的原生接口', () => {
         await runner.close();
       }
     });
+
+    it.skipIf(!installed.has(version))(`基础库 ${version}：业务调用要做隐私检查的接口（授权、定位、剪贴板）都能收到回调`, async () => {
+      const runner = await startRunner({
+        'app.json': {
+          pages: ['pages/index/index'],
+          permission: { 'scope.userLocation': { desc: '展示附近的门店' } },
+          requiredPrivateInfos: ['getLocation']
+        },
+        'pages/index/index.json': {},
+        'pages/index/index.wxml': '<view>{{done}}</view>',
+        'pages/index/index.js': `Page({
+          data: { done: 0, results: {} },
+          onLoad() {
+            const record = name => res => this.setData({ done: this.data.done + 1, ['results.' + name]: res.errMsg });
+            wx.authorize({ scope: 'scope.userLocation', complete: record('authorize') });
+            wx.getLocation({ type: 'gcj02', complete: record('getLocation') });
+            wx.getClipboardData({ complete: record('getClipboardData') });
+          }
+        });`
+      }, { baseLibVersion: version });
+      try {
+        const { page } = runner;
+        await runner.open('/');
+        await page.waitForFunction(() => window.__wxa_test_api__.pageData()?.done === 3, undefined, { timeout: 5000 }).catch(() => undefined);
+
+        expect(await page.evaluate(() => window.__wxa_test_api__.pageData())).toEqual({
+          done: 3,
+          results: { authorize: 'authorize:ok', getLocation: 'getLocation:ok', getClipboardData: 'getClipboardData:ok' }
+        });
+      } finally {
+        await runner.close();
+      }
+    });
   }
 });

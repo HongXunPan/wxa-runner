@@ -285,6 +285,14 @@ describe('其它 API', () => {
     expect(call(apis, 'getAppContact', { keyPath: 'WxaAppInfo.Name' }).errMsg).toBe('getAppContact:ok');
   });
 
+  it('基础库做隐私检查时拿到「不用弹窗、没有未授权的接口」，业务调用的接口照常执行', () => {
+    const res = call(apis, 'operateWXData', { data: { api_name: 'webapi_getwxauserprivacyauthinfo', data: { version: 3 } } });
+    expect(res.errMsg).toBe('operateWXData:ok');
+    expect(wxDataSeenByBaseLib(res)).toMatchObject({
+      action_code: 0, need_popup_scope_list: [], unauth_scope_list: [], wording: expect.any(Object)
+    });
+  });
+
   it('开放接口返回可预测的模拟数据，支付明确失败', () => {
     expect(call(apis, 'login').code).toMatch(/^wxa_mock_code_/);
     expect(phoneCodeSeenByBaseLib(call(apis, 'getPhoneNumber'))).toMatch(/^mock_phone_code_/);
@@ -346,6 +354,12 @@ describe('读取代码包里的文件', () => {
     expect(new Uint8Array(result.data)).toEqual(new Uint8Array([1, 2, 255]));
   });
 });
+
+/** 基础库的 operateWXData 封装：data（对象或 JSON 文本）里的 data 是 JSON 文本，解析后才是接口返回的数据 */
+function wxDataSeenByBaseLib(result: { data?: unknown }): unknown {
+  const outer = typeof result.data === 'string' ? JSON.parse(result.data) : result.data as { data?: unknown } | undefined;
+  return typeof outer?.data === 'string' ? JSON.parse(outer.data) : undefined;
+}
 
 /** 基础库（WAWebview 的 getPhoneNumber）只从 JSON.parse(data) 里取 code，顶层的 code 会被丢掉 */
 function phoneCodeSeenByBaseLib(result: { data?: string }): string | undefined {

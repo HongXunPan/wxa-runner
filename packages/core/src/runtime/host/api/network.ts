@@ -5,7 +5,7 @@
  * HTTP 请求经开发服务器的 /__wxa__/proxy 转发：既绕开 CORS，也能携带浏览器禁止设置的
  * cookie / referer 等请求头。
  *
- * 只发出小程序自己的请求：基础库自己的请求（数据上报、配置拉取等）见 rejectBaseLibInternal。
+ * 基础库自己的请求（数据上报、配置拉取等）不发出，只放行 InnerAudioContext 下载音频，见 byCaller。
  */
 
 import type { MockRequest } from '../../../setup';
@@ -193,18 +193,36 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     return ok(api);
   };
 
-  const createTask: Record<string, ApiHandler> = {
-    createRequestTask,
-    createRequestTaskAsync: createRequestTask,
-    createDownloadTask,
-    createDownloadTaskAsync: createDownloadTask,
-    createUploadTask,
-    createUploadTaskAsync: createUploadTask,
-    createSocketTask
+  /** 不是小程序的 wx.request：不记录，也不经拦截规则 */
+  const downloadAudio: ApiHandler = (args, { api }) => {
+    const requestTaskId = startTask(args, async (signal, id) => {
+      try {
+        const res = await proxyFetch(args.url, { method: 'GET', header: args.header, signal });
+        const meta = { requestTaskId: id, statusCode: res.statusCode, header: res.header, cookies: res.cookies };
+        emit('onRequestTaskStateChange', { ...meta, state: 'headersReceived' });
+        emit('onRequestTaskStateChange', { ...meta, state: 'success', data: await res.response.arrayBuffer(), profile: {} });
+      } catch (error) {
+        emit('onRequestTaskStateChange', { requestTaskId: id, state: 'fail', errMsg: `request:fail ${reason(error)}` });
+      }
+    });
+    return ok(api, { requestTaskId });
   };
 
+  // 基础库自己的请求只放行下载音频
+  const requestTask = byCaller(createRequestTask, (args, context) => (isAudioDownload(args)
+    ? downloadAudio(args, context)
+    : rejectBaseLib(args, context)));
+  const downloadTask = byCaller(createDownloadTask);
+  const uploadTask = byCaller(createUploadTask);
+
   return {
-    ...Object.fromEntries(Object.entries(createTask).map(([api, handler]) => [api, rejectBaseLibInternal(handler)])),
+    createRequestTask: requestTask,
+    createRequestTaskAsync: requestTask,
+    createDownloadTask: downloadTask,
+    createDownloadTaskAsync: downloadTask,
+    createUploadTask: uploadTask,
+    createUploadTaskAsync: uploadTask,
+    createSocketTask: byCaller(createSocketTask),
     operateRequestTask: args => abortTask(args, 'requestTaskId'),
     operateDownloadTask: args => abortTask(args, 'downloadTaskId'),
     operateUploadTask: args => abortTask(args, 'uploadTaskId'),
@@ -212,16 +230,24 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
   };
 }
 
+const rejectBaseLib: ApiHandler = (_args, { api }) => fail(api, '基础库内部的网络请求，wxa-runner 不发出');
+
 /**
- * 基础库自己的网络请求（数据上报、配置拉取等）直接按失败返回：不发往网络，也不记入请求记录
+ * 小程序的请求交给 forApp；基础库自己的网络请求（数据上报、配置拉取等）默认直接按失败返回：不发往网络，也不记入请求记录
  *
  * 它们连的是微信后台，与被测的小程序无关，测试和 CI 里不该因此产生对外请求。基础库通过
  * _requestSkipCheckDomain 一类内部接口发出，带 __skipDomainCheck__ 标记；小程序的 wx.request 不带
  */
-function rejectBaseLibInternal(handler: ApiHandler): ApiHandler {
-  return (args, context) => (args?.__skipDomainCheck__ === true
-    ? fail(context.api, '基础库内部的网络请求，wxa-runner 不发出')
-    : handler(args, context));
+function byCaller(forApp: ApiHandler, forBaseLib = rejectBaseLib): ApiHandler {
+  return (args, context) => (args?.__skipDomainCheck__ === true ? forBaseLib(args, context) : forApp(args, context));
+}
+
+/**
+ * 基础库为 InnerAudioContext 下载音频的请求：平台是 devtools 时基础库用 Web Audio 播放，先把音频地址下载成 ArrayBuffer。
+ * 2.32.3 到 3.17.4 都是这个形状，基础库自己的其他请求不会同时带这两个参数
+ */
+function isAudioDownload(args: any): boolean {
+  return args.responseType === 'arraybuffer' && args.enableCache === true;
 }
 
 export async function proxyFetch(

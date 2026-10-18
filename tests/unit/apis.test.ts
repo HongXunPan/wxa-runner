@@ -203,6 +203,50 @@ describe('网络 API', () => {
     expect(recorded).toEqual([]);
   });
 
+  it('小程序按 responseType: arraybuffer 请求时，拿到服务器返回的原始字节，不按文本解码', async () => {
+    // 0x80、0xff 不是合法的 UTF-8，按文本解码会变成替换字符
+    const bytes = [0, 0x80, 0xff, 0x41];
+    const { apis, events } = setup(proxied(new Uint8Array(bytes), 200, { 'content-type': 'application/octet-stream' }));
+    const { requestTaskId } = call(apis, 'createRequestTask', { url: 'https://cdn.example.com/a.bin', responseType: 'arraybuffer' });
+
+    await vi.waitFor(() => expect(events.some(([, data]) => data.state === 'success')).toBe(true));
+    const success = events.find(([, data]) => data.state === 'success')![1];
+    expect(success).toMatchObject({ requestTaskId, statusCode: 200 });
+    expect(success.data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(success.data)).toEqual(new Uint8Array(bytes));
+  });
+
+  it('WebSocket 收到的二进制消息以 ArrayBuffer 交给小程序，文本消息仍是字符串', () => {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      static OPEN = 1;
+      readyState = 1;
+      binaryType = 'blob';
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      /** 服务器发来一条消息。和浏览器一样，binaryType 不是 arraybuffer 时二进制消息是 Blob */
+      receive(message: string | Uint8Array) {
+        if (typeof message === 'string') this.onmessage?.({ data: message });
+        else this.onmessage?.({ data: this.binaryType === 'arraybuffer' ? message.slice().buffer : new Blob([message.slice()]) });
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const events: Array<[string, any]> = [];
+    const apis = createNetworkApis({ emit: (event, data) => events.push([event, data]), defaultTimeout: () => 60000 });
+
+    const { socketTaskId } = call(apis, 'createSocketTask', { url: 'wss://chat.example.com' });
+    sockets[0].receive(new Uint8Array([0, 0x80, 0xff]));
+    sockets[0].receive('hello');
+
+    const messages = events.filter(([, data]) => data.state === 'message').map(([, data]) => data);
+    expect(messages.map(message => message.socketTaskId)).toEqual([socketTaskId, socketTaskId]);
+    expect(messages[0].data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(messages[0].data)).toEqual(new Uint8Array([0, 0x80, 0xff]));
+    expect(messages[1].data).toBe('hello');
+  });
+
   it('downloadFile 把下载的文件存成开发服务器上的临时文件，返回它的地址', async () => {
     const saved: Array<{ url: string; content: string }> = [];
     const { apis, events } = setup(proxied('file-content'));

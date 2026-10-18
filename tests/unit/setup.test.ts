@@ -39,7 +39,7 @@ function createTarget() {
   api.register(createNetworkApis({ emit: (event, data) => events.push({ event, data }), defaultTimeout: () => 1000, routes }));
   const invoke = (name: string, args: object = {}) => api.invoke(name, args, { api: name, from: 'service', webviewId: 1 });
   /** 小程序里 wx.request 最终拿到的结果：基础库按任务 id 收集 success / fail 事件 */
-  const request = async (args: { url: string; method?: string; data?: unknown; header?: Record<string, string> }) => {
+  const request = async (args: { url: string; method?: string; data?: unknown; header?: Record<string, string>; responseType?: string }) => {
     const { requestTaskId } = invoke('createRequestTask', args) as any;
     for (let i = 0; i < 200; i++) {
       const done = events.find(e => e.data.requestTaskId === requestTaskId && ['success', 'fail'].includes(e.data.state));
@@ -168,6 +168,41 @@ describe('setup 拦截请求', () => {
 
     expect((await request({ url: 'https://api.example.com/v1/user' })).data).toBe('one');
     expect((await request({ url: 'https://api.example.com/v1/v2/user' })).state).toBe('fail');
+  });
+
+  it('拦截规则的 body 是 ArrayBuffer 或 Uint8Array（包括 Node 的 Buffer）时，小程序按 arraybuffer 请求拿到同样的字节', async () => {
+    const { target, request } = createTarget();
+    await applySetup({
+      network: {
+        routes: {
+          '**/avatar.png': { body: new Uint8Array([0x89, 0x50, 0xff, 0x00]).buffer },
+          // Node 的小 Buffer 共用一块内存，只占其中一段
+          '**/user.pb': { body: Buffer.from([0x08, 0x96, 0x01]) }
+        }
+      }
+    }, target, {});
+
+    const avatar = await request({ url: 'https://cdn.example.com/avatar.png', responseType: 'arraybuffer' });
+    expect(avatar.data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(avatar.data)).toEqual(new Uint8Array([0x89, 0x50, 0xff, 0x00]));
+    const user = await request({ url: 'https://api.example.com/user.pb', responseType: 'arraybuffer' });
+    expect(new Uint8Array(user.data)).toEqual(new Uint8Array([0x08, 0x96, 0x01]));
+  });
+
+  it('小程序按 arraybuffer 请求、拦截规则给的是对象时，拿到 JSON 文本的 UTF-8 字节', async () => {
+    const { target, request } = createTarget();
+    await applySetup({ network: { routes: { '**/config': { body: { name: '小程序' } } } } }, target, {});
+
+    const res = await request({ url: 'https://api.example.com/config', responseType: 'arraybuffer' });
+    expect(res.data).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(res.data)).toBe('{"name":"小程序"}');
+  });
+
+  it('拦截规则的 body 是二进制（如读进来的 JSON 文件）、小程序按默认的文本请求时，拿到解码后的文本', async () => {
+    const { target, request } = createTarget();
+    await applySetup({ network: { routes: { '**/config': { body: new TextEncoder().encode('{"name":"小程序"}') } } } }, target, {});
+
+    expect((await request({ url: 'https://api.example.com/config' })).data).toBe('{"name":"小程序"}');
   });
 
   it('拦截规则可以模拟网络延迟，响应过了指定时间才到', async () => {

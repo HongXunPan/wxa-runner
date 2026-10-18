@@ -5,7 +5,8 @@
  * 同时页面上要有提示，否则开发者只能翻控制台或 Network 才知道为什么登录不上。
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { TICKET_ENV } from '../../packages/extractor/src/devtools';
 import { e2eReady, expectText, Runner, startRunner } from './runner';
 
 const EXPIRED = '微信开发者工具的登录态已过期，请打开开发者工具刷新登录态';
@@ -23,6 +24,8 @@ describe.skipIf(!e2eReady)('真实登录失败的提示', () => {
   let runner: Runner;
 
   beforeAll(async () => {
+    // 登录接口的结果由 page.route 决定，开发服务器不用去连本机的开发者工具
+    vi.stubEnv(TICKET_ENV, 'e2e');
     runner = await startRunner({
       'app.json': { pages: ['pages/index/index'] },
       'pages/index/index.json': {},
@@ -32,6 +35,7 @@ describe.skipIf(!e2eReady)('真实登录失败的提示', () => {
   });
 
   afterAll(async () => {
+    vi.unstubAllEnvs();
     await runner?.close();
   });
 

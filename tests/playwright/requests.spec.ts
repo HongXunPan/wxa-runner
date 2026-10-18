@@ -82,6 +82,16 @@ test('请求发出后马上取消拦截，已发出的请求仍由原来的函�
   expect(await sent).toEqual({ id: 'o-node' });
 });
 
+test('开发者用 Node 的 Buffer 作为拦截的响应，小程序按 arraybuffer 请求拿到同样的字节', async ({ miniProgram }) => {
+  // 打开前声明的在页面加载时从 Node 取回，函数的结果也从 Node 传回浏览器
+  await miniProgram.route('**/api/avatar', { body: Buffer.from([0x89, 0x50, 0xff]) });
+  await miniProgram.route('**/api/user.pb', () => ({ body: Buffer.from([0x08, 0x96, 0x01]) }));
+  await miniProgram.open();
+
+  expect(await miniProgram.callPageMethod('download', 'https://api.example.com/api/avatar')).toBe('true 137,80,255');
+  expect(await miniProgram.callPageMethod('download', 'https://api.example.com/api/user.pb')).toBe('true 8,150,1');
+});
+
 test('只关心某个操作之后的请求时，先清空已记录的请求', async ({ miniProgram }) => {
   await miniProgram.route('POST **/api/orders', { status: 201, body: { id: 'o-1' } });
   await miniProgram.open();

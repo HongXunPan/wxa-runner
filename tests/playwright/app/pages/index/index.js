@@ -49,6 +49,16 @@ Page({
     }));
   },
 
+  /** 按 arraybuffer 请求，返回「是不是 ArrayBuffer 字节列表」 */
+  download(url) {
+    return new Promise(resolve => wx.request({
+      url,
+      responseType: 'arraybuffer',
+      success: res => resolve(`${res.data instanceof ArrayBuffer} ${Array.from(new Uint8Array(res.data))}`),
+      fail: err => resolve(err.errMsg)
+    }));
+  },
+
   crashLater() {
     Promise.reject(new Error('页面里没有处理的错误'));
   }

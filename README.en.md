@@ -108,6 +108,7 @@ See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking
 | Storage | Storage, basic FileSystemManager operations |
 
 Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.3, 3.3.4, 3.5.8, 3.7.0; the full test suite also passes on 3.7.1 and 3.8.8.
+CI covers only the bundled 3.7.0; the other versions are checked locally with `WXA_BASELIB=<version> pnpm test`.
 
 ## Known limitations
 

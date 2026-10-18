@@ -176,6 +176,8 @@ await page.goto('/');
   用到的请 mock 掉。`onLaunch`、首页 `onLoad` 这类启动阶段就调用的，等 `ready` 后再 mock 已经晚了，
   要在 [setup](./setup.md) 或 [`__wxa_before_launch__`](#启动前声明-mock-和拦截) 里 mock；用 fixture 时在 `open()` 之前 mock 即可
 - `wx.request` 不能 mock，要用 `route` 或 setup 的 `network.routes` 拦截，见 [setup.md](./setup.md#拦截请求)
+- 3.3.x 及更早版本的 text 组件把文字在隐藏的 span 里另存一份，`textContent`（Playwright 的 `toHaveText` 默认也用它）会读到两遍。
+  断言 text 组件的文字用 `innerText()` 或 `toHaveText(text, { useInnerText: true })`，读到的是用户看得见的
 
 ## 选择图片
 

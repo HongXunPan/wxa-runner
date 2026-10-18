@@ -294,7 +294,8 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 | 原生 → 渲染层 | `WeixinJSBridge.on(event, cb)` | 原生组件的事件：`onMultiPickerViewChange`、`onWebviewStartLoad` / `onWebviewFinishLoad` |
 
 数据通过 `目标window.JSON.parse(JSON.stringify(data))` 在目标 iframe 的 realm 中重建，
-避免跨 realm 的 `instanceof Array` 判断失效。原生接口的结果和事件里可能有 ArrayBuffer（`readFile` 读到的文件、下载的音频），
+避免跨 realm 的 `instanceof Array` 判断失效。原生接口的结果和事件里可能有 ArrayBuffer（`readFile` 读到的文件、下载的音频、
+按 `arraybuffer` 请求到的数据、WebSocket 的二进制消息），
 JSON 会把它变成 `{}`，所以单独复制成目标 realm 的 ArrayBuffer；`setData` 等消息数据量大，不做这一步。
 
 > 与最初方案的差异：最初设计中的命令字 `APPSERVICE_PUBLISH` / `WEBVIEW_PUBLISH` / `APPSERVICE_INVOKE` /
@@ -325,7 +326,7 @@ navigateTo(url)
 | --- | --- |
 | storage | localStorage，按 appid 和 storageId 隔离；原样保存基础库序列化后的数据和 dataType；渲染层用的 GlobalStorage（cookie） |
 | system | 以模拟设备（默认 iPhone X，375×812 @3x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
-| network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理 |
+| network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理。`success` 的 data 按 `responseType` 是文本或 ArrayBuffer，被拦截的请求也一样；WebSocket 的二进制消息是 ArrayBuffer。基础库把业务传的 ArrayBuffer（请求体、WebSocket 消息）原样交给宿主，不经 `__nativeBuffers__` |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
 | media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
@@ -548,7 +549,8 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - `page.evaluate` 只读一次，跳转后要手动 `waitForPage`：`toHavePath` / `toHavePageData` 自动重试
 - `network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体：宿主在匹配之前记录每个
   `wx.request`，`requests()` / `waitForRequest()` 读取
-- Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象
+- Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象。
+  这个通道的返回值传到浏览器时，Buffer 等二进制会变成普通对象，所以 route 的二进制响应体先转成 base64、到浏览器里再还原
 - 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里按顺序重放
   Node 侧记下的 mock / unmock / route / unroute，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后状态不变
 

@@ -513,7 +513,6 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 - 2.32.3 / 3.3.4 / 3.5.8 / 3.7.0 四个基础库版本跑通同一套 e2e 场景
 
 **已知限制**（后续工作）：
-- 基础库 3.7.1 及以上（隔离上下文 / glass-easel）
 - live-player、live-pusher、voip-room、open-data 等原生组件（canvas、video、map、camera、picker、web-view 已支持，见「原生组件」）；蓝牙等设备能力
 - 插件、分包异步化、Worker
 - 页面内存状态保持的热更新
@@ -545,7 +544,7 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 
 ### Phase 4：生产优化（预计 2 周）
 
-- [ ] 支持 3.7.1+ 基础库（模拟 WeixinJSContext 隔离上下文）
+- [x] 支持 3.7.1+ 基础库（模拟 WeixinJSContext 隔离上下文，[#9](https://github.com/open-wxa/wxa-runner/issues/9)）；默认仍选 ≤ 3.7.0
 - [x] 原生组件：canvas、picker、web-view、临时文件（live-player 等见 Phase 2 已知限制）
 - [ ] 多实例并行、Docker 部署
 - [ ] 性能与压力测试

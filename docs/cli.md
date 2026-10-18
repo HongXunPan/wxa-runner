@@ -27,7 +27,8 @@ wxa-runner baselib extract [version]  解包基础库到 ~/.wxa-runner/baselib�
 ```
 
 基础库的来源：本机微信开发者工具下载过的版本优先；没有时用随依赖安装的内置基础库 3.7.0
-（[wxa-baselib](https://github.com/open-wxa/wxa-baselib)）。不指定版本时选最新的兼容版本。
+（[wxa-baselib](https://github.com/open-wxa/wxa-baselib)）。不指定版本时选最新的兼容版本（≤ 3.7.0）；
+3.7.1 起的版本要用 `--baselib` 或 `WXA_BASELIB` 指定，启动时提示超出已验证的范围。
 
 ## 环境变量
 

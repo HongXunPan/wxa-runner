@@ -93,14 +93,14 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     const requestTaskId = startTask(args, async (signal, id) => {
       try {
         const mocked = route && await route.respond(signal);
-        const res = mocked
-          ? { statusCode: mocked.statusCode, header: mocked.header, cookies: [] as string[], text: async () => mocked.data }
-          : await proxyFetch(request.url, { method: request.method, header: args.header, body: args.data, signal })
-            .then(proxied => ({ ...proxied, text: () => proxied.response.text() }));
+        const res: ProxyResponse = mocked
+          ? { statusCode: mocked.statusCode, header: mocked.header, cookies: [], response: new Response(mocked.body) }
+          : await proxyFetch(request.url, { method: request.method, header: args.header, body: args.data, signal });
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'headersReceived', header: res.header, statusCode: res.statusCode, cookies: res.cookies
         });
-        const data = await res.text();
+        // 和真机一样由 responseType 决定拿到文本还是 ArrayBuffer，与响应内容无关，拦截规则给的响应也是
+        const data = args.responseType === 'arraybuffer' ? await res.response.arrayBuffer() : await res.response.text();
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'success', data, statusCode: res.statusCode, header: res.header, cookies: res.cookies, profile: {}
         });
@@ -170,9 +170,7 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     socket.binaryType = 'arraybuffer';
     sockets.set(socketTaskId, socket);
     socket.onopen = () => emit('onSocketTaskStateChange', { socketTaskId, state: 'open', header: {}, profile: {} });
-    socket.onmessage = event => emit('onSocketTaskStateChange', {
-      socketTaskId, state: 'message', data: typeof event.data === 'string' ? event.data : '[binary message not supported]'
-    });
+    socket.onmessage = event => emit('onSocketTaskStateChange', { socketTaskId, state: 'message', data: event.data });
     socket.onerror = () => emit('onSocketTaskStateChange', { socketTaskId, state: 'error', errMsg: 'connectSocket:fail' });
     socket.onclose = event => {
       sockets.delete(socketTaskId);

@@ -88,6 +88,8 @@ export interface MiniProgramOptions {
 
 /** 浏览器调用 Node 的通道名 */
 const BRIDGE = '__wxa_playwright__';
+/** 二进制的拦截响应体在传给浏览器时换成 { [BINARY_BODY]: base64 }，见 encodeBinaryBody */
+const BINARY_BODY = '__wxa_binary_body__';
 const DEFAULT_REQUEST_TIMEOUT = 10000;
 
 /** 基础库同步调用的原生 API：wx.getWindowInfo、getDeviceInfo、getSystemInfoSync 等都同步调用 getSystemInfo */
@@ -101,9 +103,13 @@ type Operation =
   | { type: 'unroute'; pattern?: string };
 
 /** 在页面脚本之前执行（序列化后注入浏览器，只能引用自己的参数） */
-function installInPage(bridge: string) {
+function installInPage({ bridge, binaryBody }: { bridge: string; binaryBody: string }) {
   if (window !== window.top) return;
   const callNode = (...args: unknown[]) => (window as any)[bridge](...args);
+  const decodeBody = (response: any) => {
+    const base64 = response?.body?.[binaryBody];
+    return typeof base64 === 'string' ? { ...response, body: Uint8Array.from(atob(base64), char => char.charCodeAt(0)) } : response;
+  };
   const replay = (api: WxaTestApi, operations: Operation[]) => {
     for (const op of operations) {
       if (op.type === 'mock') {
@@ -111,7 +117,9 @@ function installInPage(bridge: string) {
       } else if (op.type === 'unmock') {
         api.unmock(op.api);
       } else if (op.type === 'route') {
-        api.route(op.pattern, op.handler ? (request: unknown) => callNode('call', op.handler, [request]) : op.response!);
+        api.route(op.pattern, op.handler
+          ? async (request: unknown) => decodeBody(await callNode('call', op.handler, [request]))
+          : decodeBody(op.response));
       } else {
         api.unroute(op.pattern);
       }
@@ -119,6 +127,18 @@ function installInPage(bridge: string) {
   };
   (window as any).__wxa_playwright_replay__ = replay;
   window.__wxa_before_launch__ = async api => replay(api, await callNode('operations'));
+}
+
+/**
+ * 响应体是 Buffer、Uint8Array 等二进制时换成 base64，到了浏览器里再还原成 Uint8Array（installInPage 的 decodeBody）。
+ * page.evaluate 的参数能保留二进制，exposeFunction 的返回值不能：打开页面前声明的规则、Node 里函数的结果都经它传回浏览器，
+ * 到了浏览器里变成 { 0: …, 1: … } 这样的普通对象，会被当成 JSON 返回
+ */
+function encodeBinaryBody<T extends MockResponse | void>(response: T): T {
+  const body = response?.body;
+  if (!(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body)) return response;
+  const bytes = ArrayBuffer.isView(body) ? Buffer.from(body.buffer, body.byteOffset, body.byteLength) : Buffer.from(body);
+  return { ...response, body: { [BINARY_BODY]: bytes.toString('base64') } };
 }
 
 /** 等小程序启动完成；启动失败时返回模拟器上显示的错误 */
@@ -164,7 +184,7 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
       throw error;
     }
   });
-  await page.addInitScript(installInPage, BRIDGE);
+  await page.addInitScript(installInPage, { bridge: BRIDGE, binaryBody: BINARY_BODY });
 
   /** 已经打开的页面上立即执行（规则写错等在这里报错），再记下来供之后加载页面时重放 */
   const declare = async (operation: Operation) => {
@@ -227,8 +247,8 @@ export async function createMiniProgram(page: Page, { baseURL, listPages }: Mini
     unmock: api => declare({ type: 'unmock', api }),
 
     async route(pattern, handler) {
-      if (typeof handler !== 'function') return declare({ type: 'route', pattern, response: handler });
-      const id = addHandler(`route('${pattern}')`, ([request]) => handler(withBody({ ...request, routedBy: pattern })));
+      if (typeof handler !== 'function') return declare({ type: 'route', pattern, response: encodeBinaryBody(handler) });
+      const id = addHandler(`route('${pattern}')`, async ([request]) => encodeBinaryBody(await handler(withBody({ ...request, routedBy: pattern }))));
       return declare({ type: 'route', pattern, handler: id });
     },
 

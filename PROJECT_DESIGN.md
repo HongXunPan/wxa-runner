@@ -380,8 +380,10 @@ navigateTo(url)
   2.32.3 到 3.17.4 都是这样）只放行这一种，经代理下载；代码包里的音频经 `readFile` 向开发服务器读取。
   3.3.x 及更早版本默认调原生接口（`createAudioInstance`、`setAudioState`、`operateAudio` 等；业务指定 `useWebAudioImplement` 时同样用 Web Audio），宿主用 `<audio>` 实现：
   时间以毫秒为单位；基础库每次改属性都带上全部状态，其中的进度是旧值，只取 src、音量等能设置的属性；
-  timeupdate 由基础库轮询 `getAudioState` 产生。浏览器缓冲后只派发 playing，所以把 playing 当作 play 推送，
-  否则基础库把 waiting 当作暂停、不再更新进度；播到结尾时浏览器先派发的 pause 不推送
+  timeupdate 由基础库轮询 `getAudioState` 产生。浏览器缓冲、跳转后只派发 playing，所以把 playing 当作 play 推送，
+  否则基础库把 waiting 当作暂停、不再更新进度。pause 由宿主在暂停时推送，不转发浏览器的 pause 事件（它在 stop 之后才异步派发，
+  播到结尾时也会先派发一次）；stop 把进度归零引起的 seeking、seeked、canplay 也不推送。还没播放过时设置 startTime 立即生效，
+  stop 后从头播放，都与基础库的 Web Audio 实现一致
 - **按需加载的组件**：3.3.x、3.5.x 的 video 等组件放在单独的基础库文件里，渲染层用到时调 `loadLibFilesSync`。
   宿主同步读取文件，脚本在调用返回前于渲染层执行完（基础库在调用前后设置、清理 `window.__Behaviour` 等全局变量），
   各文件的内容按顺序放在 `__codes` 里交回，基础库从中取 CSS 自己插入。逻辑层也会调它加载伴生 SDK，那条路照旧只返回成功（见下文「伴生 SDK 子包」）

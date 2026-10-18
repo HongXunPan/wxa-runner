@@ -147,9 +147,10 @@ export function createMiscApis(appid: string, options?: MiscApiOptions): Record<
   for (const name of Object.keys(fileApis)) {
     if (!name.startsWith('fs_')) fileApis[name + 'Sync'] = fileApis[name];
   }
-  // 代码包里的文件要向开发服务器取，readFileSync 同步返回不了，仍只读内存文件系统
+  // 不带协议的是代码包里的文件，要向开发服务器取；readFileSync 同步返回不了，仍只读内存文件系统。
+  // 内存文件系统的路径去掉了协议，不能先在里面找：用户目录下的同名文件会顶替代码包里的
   const readMemoryFile = fileApis.readFile;
-  fileApis.readFile = (args, context) => (fs.stat(args.filePath) || /^[a-z]+:\/\//i.test(String(args.filePath))
+  fileApis.readFile = (args, context) => (/^[a-z]+:\/\//i.test(String(args.filePath))
     ? readMemoryFile(args, context)
     : readPackageFile(fs.normalize(args.filePath), args.encoding).then(
       data => ok(context.api, { data }),
@@ -224,7 +225,8 @@ async function readPackageFile(filePath: string, encoding: unknown): Promise<str
   if (encoding !== undefined && encoding !== 'utf8' && encoding !== 'utf-8') {
     throw new Error(`读取代码包里的文件只支持 utf8 编码，或不指定编码得到 ArrayBuffer，不支持 ${encoding}`);
   }
-  const response = await fetch(encodeURI(filePath));
+  // encodeURI 不编码 # 和 ?，文件名里有的话会被当成地址的片段和查询
+  const response = await fetch(filePath.split('/').map(encodeURIComponent).join('/'));
   if (!response.ok) throw new Error(`no such file or directory, open ${filePath}`);
   return encoding ? response.text() : response.arrayBuffer();
 }

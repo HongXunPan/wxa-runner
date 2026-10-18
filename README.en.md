@@ -114,6 +114,7 @@ Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.
 - Base library 3.7.1 and later is never picked automatically: choose it with `--baselib` or `WXA_BASELIB`, and a warning says it is outside the verified range. The bundled base library is 3.7.0 only, so download newer versions in WeChat DevTools first
 - Unimplemented native APIs return success; tests can catch them through `errors()` (see [docs/testing.md](./docs/testing.md#注意事项))
 - No Bluetooth or other device capabilities; `chooseMedia` can't pick videos
+- A few `MapContext` methods of the map component, such as `toScreenLocation`, `fromScreenLocation` and ground overlays, are missing from the base library's web implementation and never call back (see [PROJECT_DESIGN.md](./PROJECT_DESIGN.md#原生组件))
 - No plugins, async subpackages or Workers ([#10](https://github.com/open-wxa/wxa-runner/issues/10))
 - Without WeChat DevTools (on Linux or in CI, say): x86-64 only; the compiler is older, with small template-runtime differences (such as a limit of 16,000 nodes per page); the region picker is unavailable
 

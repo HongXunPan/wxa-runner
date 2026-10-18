@@ -385,6 +385,18 @@ navigateTo(url)
   否则基础库把 waiting 当作暂停、不再更新进度。pause 由宿主在暂停时推送，不转发浏览器的 pause 事件（它在 stop 之后才异步派发，
   播到结尾时也会先派发一次）；stop 把进度归零引起的 seeking、seeked、canplay 也不推送。还没播放过时设置 startTime 立即生效，
   stop 后从头播放，都与基础库的 Web Audio 实现一致
+- **地图（map）**：基础库用腾讯地图 GL 网页 SDK 实现，SDK 和瓦片从腾讯的服务器加载，需要联网。MapContext 的方法经 `operateMap`
+  消息发给渲染层的 map 组件，结果经 `operateMapCallback` 发回，宿主照常转发。在 3.7.0 上用真实 SDK 逐个验证过：
+  getCenterLocation、getRegion、getScale、getRotate、getSkew、moveToLocation、includePoints、addMarkers、removeMarkers、
+  translateMarker、moveAlong、setCenterOffset、setBoundary、initMarkerCluster 能用；事件 tap、markertap、callouttap、labeltap、
+  regionchange（拖动时 begin / end，includePoints 等引起的 begin 的 causedBy 是基础库拼错的 `udpate`）、updated 能收到。
+  点标记点时 SDK 同时派发地图的点击，业务也会收到 tap（点到地名时还有 poitap）。
+  宿主要配合两处：map 组件要当前位置时（moveToLocation、show-location）调 `private_geolocation`，期望腾讯位置服务定位接口的 JSON 文本，
+  宿主返回 `getLocation` 的结果（能 mock），没有它时带经纬度的 moveToLocation 也失败；3.10.1 起带经纬度的 moveToLocation
+  改调原生的 `moveToMapLocation`，宿主照基础库的格式经 `operateMap` 转给当前页的 map 组件，等它的 `operateMapCallback` 再返回。
+  网页实现里没有处理、调用后不会回调的：toScreenLocation、fromScreenLocation、地面覆盖物（addGroundOverlay 等）、setLocMarkerIcon、
+  eraseLines、室内图、可视化图层；addArc、removeArc 返回 `not support on devtools`；openMapApp 返回成功，但不会打开地图 App。
+  e2e 把 SDK 换成替身（`tests/e2e/fixtures/tmap.js`），不依赖外网；`WXA_MAP_SDK=online` 时用真实 SDK 跑同样的用例
 - **按需加载的组件**：3.3.x、3.5.x 的 video 等组件放在单独的基础库文件里，渲染层用到时调 `loadLibFilesSync`。
   宿主同步读取文件，脚本在调用返回前于渲染层执行完（基础库在调用前后设置、清理 `window.__Behaviour` 等全局变量），
   各文件的内容按顺序放在 `__codes` 里交回，基础库从中取 CSS 自己插入。逻辑层也会调它加载伴生 SDK，那条路照旧只返回成功（见下文「伴生 SDK 子包」）

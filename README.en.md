@@ -9,7 +9,7 @@ npx wxa-runner dev ./dist/dev/mp-weixin   # a native mini program, or uni-app / 
 # → http://localhost:3000
 ```
 
-Only base library 3.7.0 and below is supported. See [Known limitations](#known-limitations) for the rest.
+Base library 3.7.0 and below is used by default; newer versions (3.7.1 onwards) must be chosen explicitly. See [Known limitations](#known-limitations) for the rest.
 
 ## Why wxa-runner
 
@@ -107,11 +107,11 @@ See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking
 | Network | request, upload and download through a proxy (no CORS limits), WebSocket |
 | Storage | Storage, basic FileSystemManager operations |
 
-Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.3, 3.3.4, 3.5.8, 3.7.0.
+Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.3, 3.3.4, 3.5.8, 3.7.0; the full test suite also passes on 3.7.1 and 3.8.8.
 
 ## Known limitations
 
-- Base library 3.7.0 at most ([#9](https://github.com/open-wxa/wxa-runner/issues/9))
+- Base library 3.7.1 and later is never picked automatically: choose it with `--baselib` or `WXA_BASELIB`, and a warning says it is outside the verified range. The bundled base library is 3.7.0 only, so download newer versions in WeChat DevTools first
 - Unimplemented native APIs return success; tests can catch them through `errors()` (see [docs/testing.md](./docs/testing.md#注意事项))
 - No video, map, audio or Bluetooth ([#8](https://github.com/open-wxa/wxa-runner/issues/8)); `chooseMedia` can't pick videos
 - No plugins, async subpackages or Workers ([#10](https://github.com/open-wxa/wxa-runner/issues/10))

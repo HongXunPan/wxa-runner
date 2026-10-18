@@ -24,6 +24,8 @@ export default defineConfig({
         'packages/core/src/runtime/host/pageStackRestore.ts',
         'packages/core/src/runtime/host/testApi.ts',
         'packages/core/src/runtime/host/api/webView.ts',
+        'packages/core/src/runtime/host/api/libFiles.ts',
+        'packages/core/src/runtime/syncScript.ts',
         'packages/core/src/runtime/host/ui/**'
       ],
       reporter: ['text-summary', 'text']

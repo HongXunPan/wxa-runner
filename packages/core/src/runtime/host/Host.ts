@@ -7,6 +7,8 @@
 
 import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
+import { createAudioApis } from './api/audio';
+import { createLibFileApis } from './api/libFiles';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis, RequestLog } from './api/network';
@@ -170,7 +172,7 @@ export class Host implements HostApi {
 
   /**
    * 业务代码只运行在逻辑层，所以只记逻辑层调用、名字在 wx 上的 API，每个 API 一次。
-   * 其余是基础库内部调用的原生接口（如 getPermissionBytes、loadLibFilesSync），业务既没调用也 mock 不了
+   * 其余是基础库内部调用的原生接口（如 getPermissionBytes），业务既没调用也 mock 不了
    */
   private reportUnimplemented({ api, from }: ApiContext) {
     const wx = (this.serviceWindow() as any)?.wx;
@@ -447,6 +449,8 @@ export class Host implements HostApi {
         routes: this.routes,
         onRequest: request => this.requests.add(request)
       }),
+      ...createAudioApis({ emit: (event, data) => this.emitToService(event, data) }),
+      ...createLibFileApis({ windowOf: webviewId => this.pages.get(webviewId)?.win }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMediaApis({
         showActionSheet: options => this.shell.showActionSheet(options),

@@ -12,6 +12,7 @@
  * 所以这里的逻辑都不经过它。
  */
 
+import { readSync, runScript } from './syncScript';
 import type { HostApi } from './types';
 
 const MAIN_CONTEXT_ID = 1;
@@ -180,7 +181,7 @@ class JsContext {
 
   runSync(urls: string[]) {
     if (this.pending) throw new Error(`[wxa-runner] JS 上下文 ${this.id} 尚未加载完，不能同步执行脚本`);
-    for (const url of urls) evalSync(this.win!, url);
+    for (const url of urls) runScript(this.win!, url, readSync(url));
   }
 
   destroy() {
@@ -238,20 +239,6 @@ class AppBoot {
     }
     this.host.frameLoaded('service', 0);
   }
-}
-
-/** 与开发者工具的 loadLibFiles 一致：同步请求脚本内容，以内联脚本执行 */
-function evalSync(win: Window, url: string) {
-  const xhr = new XMLHttpRequest();
-  xhr.open('GET', url, false);
-  xhr.send();
-  if (xhr.status !== 200) throw new Error(`[wxa-runner] 加载 ${url} 失败：${xhr.status}`);
-  const href = new URL(url, location.href).href;
-  // 基础库文件同样加入 DevTools 的忽略列表（见 server/ignoreList.ts）
-  const sourceMap = url.startsWith('/__baselib__/') ? `\n//# sourceMappingURL=${href}.map` : '';
-  const script = win.document.createElement('script');
-  script.text = `${xhr.responseText}\n//# sourceURL=${href}${sourceMap}`;
-  win.document.head.appendChild(script);
 }
 
 /** 按顺序加载外部脚本（保留文件名和行号，便于在 DevTools 里调试），全部执行完后回调 */

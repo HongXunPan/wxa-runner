@@ -243,7 +243,8 @@ function byCaller(forApp: ApiHandler, forBaseLib = rejectBaseLib): ApiHandler {
 }
 
 /**
- * 基础库为 InnerAudioContext 下载音频的请求：平台是 devtools 时基础库用 Web Audio 播放，先把音频地址下载成 ArrayBuffer。
+ * 基础库为 InnerAudioContext 下载音频的请求：用 Web Audio 播放时先把音频地址下载成 ArrayBuffer
+ * （3.5.8 起平台是 devtools 时默认用 Web Audio，更早的版本要业务指定 useWebAudioImplement，否则调原生接口，见 audio.ts）。
  * 2.32.3 到 3.17.4 都是这个形状，基础库自己的其他请求不会同时带这两个参数
  */
 function isAudioDownload(args: any): boolean {

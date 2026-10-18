@@ -35,10 +35,12 @@ class FakeAudio extends EventTarget {
     this.currentTime = 0;
   }
 
+  /** 和浏览器一样先派发 play，数据够了再派发 playing */
   play() {
     this.paused = false;
     this.ended = false;
     this.fire('play');
+    this.fire('playing');
     return this.playResult;
   }
 
@@ -94,10 +96,10 @@ function setup() {
   const call = (api: string, args: object = {}) => apis[api](args, { api, from: 'service', webviewId: 1 }) as any;
   const states = () => events.map(event => event.state);
 
-  /** 基础库创建音频、设置 src，浏览器加载好了 */
-  const createLoaded = (src = '/assets/tone.wav', duration = 2) => {
+  /** 基础库创建音频、设置好 src 等状态，浏览器加载好了 */
+  const createLoaded = (state: Record<string, unknown> = {}, duration = 2) => {
     const { audioId } = call('createAudioInstance', { timestamp: 1 });
-    call('setAudioState', { ...STATE, audioId, src });
+    call('setAudioState', { ...STATE, audioId, src: '/assets/tone.wav', ...state });
     const audio = audios.at(-1)!;
     audio.loaded(duration);
     return { audioId, audio };
@@ -111,7 +113,7 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 describe('原生音频接口', () => {
   it('基础库创建音频、设置 src 后播放：依次收到 canplay、play，getAudioState 以毫秒给出时长和进度', () => {
     const { call, events, states, createLoaded } = setup();
-    const { audioId, audio } = createLoaded('/assets/tone.wav', 1.5);
+    const { audioId, audio } = createLoaded({}, 1.5);
 
     call('operateAudio', { audioId, operationType: 'play' });
     audio.currentTime = 0.25;
@@ -136,6 +138,12 @@ describe('原生音频接口', () => {
     expect(audio.loads).toBe(1);
     expect(audio.volume).toBe(0.5);
     expect(call('getAudioState', { audioId }).currentTime).toBe(1000);
+  });
+
+  it('设置了 startTime（毫秒）时，加载好后从这个位置开始', () => {
+    const { call, createLoaded } = setup();
+    const { audioId } = createLoaded({ startTime: 800 });
+    expect(call('getAudioState', { audioId })).toMatchObject({ startTime: 800, currentTime: 800 });
   });
 
   it('播到结尾只推送 ended，不推送 pause；stop 推送 stop 并回到开头', () => {

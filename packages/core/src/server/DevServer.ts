@@ -24,7 +24,7 @@ import http from 'http';
 import path from 'path';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
-import { findDeveloperTicket, readRegionData, resolveBaseLib, ResolvedBaseLib, usesIsolatedContext } from '@open-wxa/wxa-runner-extractor';
+import { readRegionData, resolveBaseLib, ResolvedBaseLib, usesIsolatedContext } from '@open-wxa/wxa-runner-extractor';
 import { AppBuilder, BuildResult } from '../project/AppBuilder';
 import { MiniProgram } from '../project/MiniProgram';
 import type { AppInfo, DeviceProfile } from '../runtime/types';
@@ -32,6 +32,7 @@ import { appserviceHtml, hostHtml, subcontextHtml, webviewHtml } from './html';
 import { ignoreListSourceMap } from './ignoreList';
 import { handleProxy } from './proxy';
 import { planHotUpdate } from './hmr';
+import { developerTicketSource, TicketSource } from './developerTicket';
 import { realLoginRouter, requireUsableTicket } from './realLogin';
 import { bundleSetup, collectSetupEnv, findSetupFile } from './setup';
 import { ProjectWatcher, watchProject } from './watcher';
@@ -85,6 +86,8 @@ export class DevServer {
   private address = '';
   /** 运行时生成的临时文件（canvas 导出、拍照等），随服务器进程存在 */
   private readonly tempFiles = new Map<string, Buffer>();
+  /** 开启 --real-login 时才有 */
+  private readonly ticketSource: TicketSource | null;
 
   constructor(private readonly options: DevServerOptions) {
     this.logger = options.logger || console;
@@ -93,13 +96,7 @@ export class DevServer {
     if (!this.baseLib.compatible) {
       this.logger.warn(`[wxa-runner] 基础库 ${this.baseLib.version} 高于已验证的版本范围，可能无法正常运行`);
     }
-    if (options.realLogin) {
-      try {
-        requireUsableTicket(findDeveloperTicket());
-      } catch (error) {
-        this.logger.warn(`[wxa-runner] 真实登录暂不可用：${(error as Error).message}`);
-      }
-    }
+    this.ticketSource = options.realLogin ? developerTicketSource(this.project.projectPath, this.logger) : null;
     this.device = { ...DEFAULT_DEVICE, ...options.device };
     this.builder = new AppBuilder(this.project);
     this.setupFile = resolveSetupFile(options.setup, this.project.projectPath);
@@ -141,6 +138,10 @@ export class DevServer {
     this.address = `http://${host}:${port}`;
 
     if (this.options.watch !== false) this.startWatching();
+    // 启动时先取一次：新版开发者工具要先为项目开启自动化接口，第一次 wx.login 就不用等；不可用时在终端提示原因
+    this.ticketSource?.()
+      .then(requireUsableTicket)
+      .catch(error => this.logger.warn(`[wxa-runner] 真实登录暂不可用：${error.message}`));
     return this.address;
   }
 
@@ -299,7 +300,7 @@ export class DevServer {
       res.status(this.tempFiles.delete(req.params.name) ? 204 : 404).end();
     });
 
-    if (this.options.realLogin) app.use('/__wxa__/api', realLoginRouter(this.project.appid));
+    if (this.ticketSource) app.use('/__wxa__/api', realLoginRouter(this.project.appid, this.ticketSource));
 
     // 渲染层页面路径下的相对资源（如 ../../images/a.png）
     app.use('/__wxa__/webview', express.static(root));

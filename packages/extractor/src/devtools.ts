@@ -46,6 +46,19 @@ export function findDevtoolsPackageDirs(): string[] {
   return [...new Set(candidates)].filter(dir => fs.existsSync(path.join(dir, 'package.json')));
 }
 
+/**
+ * 新版开发者工具（Electron）的命令行。新版把登录态加密存放，ticket 要通过命令行开启的自动化接口向正在运行的开发者工具要
+ *
+ * @returns 找到的第一个开发者工具是旧版（package.nw）或者没装时返回 null，ticket 照旧从 findDeveloperTicket 读
+ */
+export function findElectronDevtoolsCli(): string | null {
+  const [packageDir] = findDevtoolsPackageDirs();
+  if (!packageDir?.endsWith('app.asar.unpacked')) return null;
+  // macOS 是 Contents/MacOS/cli（程序文件在 Contents/Resources/app.asar.unpacked），Windows 是安装目录下的 cli.bat
+  const candidates = [path.join(packageDir, '../../MacOS/cli'), path.join(packageDir, '../../cli.bat')];
+  return candidates.find(file => fs.existsSync(file)) ?? null;
+}
+
 const REGION_DATA_FILES = {
   districts: 'region_sub_strict_third',
   streets: 'region_sub_strict'

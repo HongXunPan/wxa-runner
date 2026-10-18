@@ -88,6 +88,12 @@ describe('真实登录接口', () => {
     const { status, body } = await post('/login');
     expect(status).toBe(500);
     expect(body.error).toBe('微信登录失败 40029: invalid ticket（登录态已失效，请在微信开发者工具里重新登录）');
+
+    // 开发者工具刷新过 ticket，手里的旧 ticket 随即作废
+    stubWechat({ baseresponse: { errcode: 40001, errmsg: 'invalid credential, access_token is invalid or not latest' } });
+    expect((await post('/login')).body.error).toBe(
+      '微信登录失败 40001: invalid credential, access_token is invalid or not latest（登录态已失效，请在微信开发者工具里重新登录）'
+    );
   });
 
   it('连不上微信服务器时报出具体原因', async () => {

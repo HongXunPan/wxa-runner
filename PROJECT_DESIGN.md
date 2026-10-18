@@ -107,6 +107,7 @@ wxa-runner/
 │   │       │   ├── html.ts            # 宿主 / 逻辑层 / 渲染层 HTML
 │   │       │   ├── proxy.ts           # wx.request 等的转发代理
 │   │       │   ├── realLogin.ts       # --real-login 的真实登录接口
+│   │       │   ├── developerTicket.ts # 真实登录的 ticket：新版开发者工具经自动化接口实时获取
 │   │       │   └── setup.ts           # 编译 setup 文件
 │   │       └── runtime/               # 浏览器端（打包为 dist/runtime/host.js、frame.js）
 │   │           ├── frame.ts           # 注入 iframe：全局变量、WeixinJSBridge、设备尺寸、触摸模拟

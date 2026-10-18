@@ -20,6 +20,7 @@ class FakeAudio extends EventTarget {
   ended = false;
   currentTime = 0;
   duration = NaN;
+  readyState = 0;
   buffered = { length: 0, end: () => 0 };
   error: { code: number; message: string } | null = null;
   playResult: Promise<void> = Promise.resolve();
@@ -33,6 +34,7 @@ class FakeAudio extends EventTarget {
     this.source = value;
     this.loads++;
     this.currentTime = 0;
+    this.readyState = 0;
   }
 
   /** 和浏览器一样先派发 play，数据够了再派发 playing */
@@ -44,10 +46,9 @@ class FakeAudio extends EventTarget {
     return this.playResult;
   }
 
+  /** 浏览器随后才异步派发 pause，需要时由测试触发 */
   pause() {
-    if (this.paused) return;
     this.paused = true;
-    this.fire('pause');
   }
 
   load() {}
@@ -63,6 +64,7 @@ class FakeAudio extends EventTarget {
   /** 浏览器加载好了音频 */
   loaded(duration: number) {
     this.duration = duration;
+    this.readyState = 4;
     this.fire('loadedmetadata');
     this.fire('canplay');
   }
@@ -140,25 +142,56 @@ describe('原生音频接口', () => {
     expect(call('getAudioState', { audioId }).currentTime).toBe(1000);
   });
 
-  it('设置了 startTime（毫秒）时，加载好后从这个位置开始', () => {
+  it('还没播放过时设置 startTime（毫秒）：没加载好的加载后、已加载的立即从这个位置开始；播放过之后再设置不跳转', () => {
     const { call, createLoaded } = setup();
     const { audioId } = createLoaded({ startTime: 800 });
     expect(call('getAudioState', { audioId })).toMatchObject({ startTime: 800, currentTime: 800 });
+
+    const loaded = createLoaded();
+    call('setAudioState', { ...STATE, audioId: loaded.audioId, src: '/assets/tone.wav', startTime: 600 });
+    expect(call('getAudioState', { audioId: loaded.audioId }).currentTime).toBe(600);
+
+    call('operateAudio', { audioId: loaded.audioId, operationType: 'play' });
+    loaded.audio.currentTime = 1;
+    call('setAudioState', { ...STATE, audioId: loaded.audioId, src: '/assets/tone.wav', startTime: 1500 });
+    expect(call('getAudioState', { audioId: loaded.audioId }).currentTime).toBe(1000);
   });
 
-  it('播到结尾只推送 ended，不推送 pause；stop 推送 stop 并回到开头', () => {
+  it('播到结尾只推送 ended，不推送浏览器先派发的 pause', () => {
     const { call, states, createLoaded } = setup();
     const { audioId, audio } = createLoaded();
 
     call('operateAudio', { audioId, operationType: 'play' });
     audio.finish();
-    expect(states()).toEqual(['canplay', 'play', 'ended']);
 
+    expect(states()).toEqual(['canplay', 'play', 'ended']);
+  });
+
+  it('stop 推送 stop 并回到开头；归零引起的 seeking、seeked、canplay 和随后的 pause 都不推送，再播放时照常推送', () => {
+    const { call, states, createLoaded } = setup();
+    const { audioId, audio } = createLoaded();
     call('operateAudio', { audioId, operationType: 'play' });
     audio.currentTime = 1;
+
     call('operateAudio', { audioId, operationType: 'stop' });
-    expect(states()).toEqual(['canplay', 'play', 'ended', 'play', 'stop']);
+    ['pause', 'seeking', 'seeked', 'canplay'].forEach(type => audio.fire(type));
+
+    expect(states()).toEqual(['canplay', 'play', 'stop']);
     expect(call('getAudioState', { audioId })).toMatchObject({ paused: true, currentTime: 0 });
+    call('operateAudio', { audioId, operationType: 'play' });
+    expect(states()).toEqual(['canplay', 'play', 'stop', 'play']);
+  });
+
+  it('先暂停再停止：依次推送 pause 和 stop，浏览器在 stop 之后才派发的 pause 不再推送', () => {
+    const { call, states, createLoaded } = setup();
+    const { audioId, audio } = createLoaded();
+    call('operateAudio', { audioId, operationType: 'play' });
+
+    call('operateAudio', { audioId, operationType: 'pause' });
+    call('operateAudio', { audioId, operationType: 'stop' });
+    audio.fire('pause');
+
+    expect(states()).toEqual(['canplay', 'play', 'pause', 'stop']);
   });
 
   it('pause 推送 pause；seek 的位置以毫秒为单位；浏览器的 waiting、seeking、seeked 原样转给基础库', () => {

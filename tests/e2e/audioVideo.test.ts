@@ -35,18 +35,22 @@ function sineWav(seconds: number, sampleRate = 8000): Buffer {
 }
 
 const TONE = sineWav(1);
+const LONG_TONE = sineWav(2);
 const CLIP = fs.readFileSync(path.join(__dirname, 'fixtures/clip-2s.webm'));
 
 const AUDIO_WXML = `
 <button id="play" bindtap="onPlay">播放</button>
 <view id="events">{{events}}</view>
 <view id="duration">{{duration}}</view>
+<button id="play-seek" bindtap="onPlayAndSeek">播放，开始后跳到 1 秒</button>
+<view id="after-seek">{{afterSeek}}</view>
+<view id="seek-ended">{{seekEnded}}</view>
 `;
 
 // 每种事件只记第一次，按先后顺序
 const AUDIO_JS = `
 Page({
-  data: { events: '', duration: '' },
+  data: { events: '', duration: '', afterSeek: '', seekEnded: '' },
   onLoad(query) { this.src = decodeURIComponent(query.src); },
   onPlay() {
     const audio = wx.createInnerAudioContext();
@@ -64,6 +68,25 @@ Page({
       this.setData({ duration: audio.duration.toFixed(1) });
     });
     audio.onError(err => record('error ' + err.errMsg));
+    audio.src = this.src;
+    audio.play();
+  },
+  // 第一次 timeupdate 时跳到 1 秒；跳转完成后又收到 timeupdate 说明进度还在更新
+  onPlayAndSeek() {
+    const audio = wx.createInnerAudioContext();
+    let seekIssued = false;
+    let seeked = false;
+    audio.onTimeUpdate(() => {
+      if (!seekIssued) {
+        seekIssued = true;
+        audio.seek(1);
+      } else if (seeked && audio.currentTime >= 1) {
+        this.setData({ afterSeek: 'continued' });
+      }
+    });
+    audio.onSeeked(() => { seeked = true; });
+    audio.onEnded(() => this.setData({ seekEnded: 'ended' }));
+    audio.onError(err => this.setData({ seekEnded: 'error ' + err.errMsg }));
     audio.src = this.src;
     audio.play();
   }
@@ -159,6 +182,7 @@ describe.skipIf(!e2eReady)('音频与视频', () => {
     runner = await startRunner({
       'app.json': { pages: ['pages/audio/audio', 'pages/video/video', 'pages/file/file'] },
       'assets/tone.wav': TONE,
+      'assets/tone-2s.wav': LONG_TONE,
       'assets/data.bin': Buffer.from([1, 2, 3, 255]),
       'assets/hello.txt': '你好，wxa-runner',
       'pages/audio/audio.json': {},
@@ -192,6 +216,13 @@ describe.skipIf(!e2eReady)('音频与视频', () => {
     await frame.click('#play');
     await expectText(frame, '#events', 'canplay,play,timeupdate,ended');
     await expectText(frame, '#duration', '1.0');
+  });
+
+  it('用户播放中跳转：跳转完成后继续收到 timeupdate，播到结束', async () => {
+    const frame = await openAudio('/assets/tone-2s.wav');
+    await frame.click('#play-seek');
+    await expectText(frame, '#after-seek', 'continued');
+    await expectText(frame, '#seek-ended', 'ended');
   });
 
   it('用户点击播放视频，开始播放就跳到 1.5 秒：跳过中间的内容播到结束，依次收到 play、timeupdate 和 ended', async () => {

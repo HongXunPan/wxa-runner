@@ -258,7 +258,9 @@ describe('读取代码包里的文件', () => {
   function setup() {
     const files: Record<string, Uint8Array<ArrayBuffer>> = {
       '/assets/data.bin': new Uint8Array([1, 2, 255]),
-      '/assets/hello.txt': new TextEncoder().encode('你好')
+      '/assets/hello.txt': new TextEncoder().encode('你好'),
+      // 文件名里的 # 和 ? 要编码，否则会被当成地址的片段和查询
+      '/assets/c%23%3F.txt': new TextEncoder().encode('sharp')
     };
     const fetchMock = vi.fn(async (url: string) => (files[url] ? new Response(files[url]) : new Response('', { status: 404 })));
     vi.stubGlobal('fetch', fetchMock);
@@ -271,6 +273,7 @@ describe('读取代码包里的文件', () => {
     expect(binary.errMsg).toBe('readFile:ok');
     expect(new Uint8Array(binary.data)).toEqual(new Uint8Array([1, 2, 255]));
     expect(await call(apis, 'readFile', { filePath: 'assets/hello.txt', encoding: 'utf8' })).toMatchObject({ data: '你好' });
+    expect(await call(apis, 'readFile', { filePath: '/assets/c#?.txt', encoding: 'utf8' })).toMatchObject({ data: 'sharp' });
   });
 
   it('代码包里没有的文件、不支持的编码，readFile 失败', async () => {
@@ -287,6 +290,16 @@ describe('读取代码包里的文件', () => {
     expect(await call(apis, 'readFile', { filePath: 'http://usr/a.txt' })).toMatchObject({ data: 'local' });
     expect((await call(apis, 'readFile', { filePath: 'http://usr/assets/data.bin' })).errMsg).toMatch(/^readFile:fail no such file/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('用户目录下有同名文件时，不带协议的路径仍读代码包里的文件', async () => {
+    const { apis } = setup();
+    call(apis, 'mkdir', { dirPath: 'http://usr/assets' });
+    call(apis, 'writeFile', { filePath: 'http://usr/assets/data.bin', data: 'local' });
+
+    const result = await call(apis, 'readFile', { filePath: 'assets/data.bin' });
+
+    expect(new Uint8Array(result.data)).toEqual(new Uint8Array([1, 2, 255]));
   });
 });
 

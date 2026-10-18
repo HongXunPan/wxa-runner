@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createMapApis } from '../../packages/core/src/runtime/host/api/map';
+import { createMapApis, MapOperations } from '../../packages/core/src/runtime/host/api/map';
 import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
 import { ApiRegistry, ApiResult } from '../../packages/core/src/runtime/host/api/registry';
 
@@ -12,7 +12,7 @@ describe('地图组件的定位', () => {
   function setup() {
     const api = new ApiRegistry();
     api.register(createMiscApis('wx1'));
-    api.register(createMapApis(api));
+    api.register(createMapApis({ registry: api, operations: new MapOperations(() => undefined) }));
     const locate = async () => {
       const text = await api.invoke('private_geolocation', { from: 'moveToMapLocation' }, { api: 'private_geolocation', from: 'webview', webviewId: 1 });
       return JSON.parse(text as unknown as string).result?.location;
@@ -38,5 +38,48 @@ describe('地图组件的定位', () => {
       throw new Error('auth deny');
     });
     expect(await locate()).toBeUndefined();
+  });
+});
+
+describe('宿主替基础库操作 map 组件', () => {
+  // 3.10.1 起，带经纬度的 moveToLocation 不再经 operateMap 发给 map 组件，改调原生的 moveToMapLocation
+  function setup() {
+    const sent: Array<{ webviewId: number; event: string; data: any }> = [];
+    const operations = new MapOperations((webviewId, event, data) => sent.push({ webviewId, event, data }));
+    const api = new ApiRegistry();
+    api.register(createMiscApis('wx1'));
+    api.register(createMapApis({ registry: api, operations }));
+    return { api, operations, sent };
+  }
+
+  it('带经纬度的 moveToLocation 转给页面里的 map 组件，map 组件移动完才返回结果', async () => {
+    const { api, operations, sent } = setup();
+    let result: unknown;
+    const moving = (api.invoke('moveToMapLocation', { mapId: 1, latitude: 23.1365, longitude: 113.3245 },
+      { api: 'moveToMapLocation', from: 'service', webviewId: 3 }) as Promise<ApiResult>).then(res => (result = res));
+
+    // 和基础库自己发的 operateMap 一样只发给当前页，消息包一层 { data, options }
+    expect(sent).toEqual([{
+      webviewId: 3,
+      event: 'operateMap',
+      data: {
+        data: expect.objectContaining({ mapId: 1, method: 'moveToMapLocation', latitude: 23.1365, longitude: 113.3245 }),
+        options: expect.any(Object)
+      }
+    }]);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(result).toBeUndefined();
+
+    const { callbackId } = sent[0].data.data;
+    const reply = { errMsg: 'moveToMapLocation:ok', mapId: 1, callbackId, method: 'moveToMapLocation' };
+    expect(operations.receive({ data: reply, options: { timestamp: Date.now() } })).toBe(true);
+    await moving;
+    expect(result).toEqual({ errMsg: 'moveToMapLocation:ok' });
+  });
+
+  it('map 组件回复的是基础库自己发的操作时，宿主不收下，照常交给逻辑层', () => {
+    const { operations } = setup();
+    const reply = { errMsg: 'getMapScale:ok', mapId: 1, callbackId: 'callback3_1_0', method: 'getMapScale', scale: 14 };
+    expect(operations.receive({ data: reply, options: { timestamp: Date.now() } })).toBe(false);
   });
 });

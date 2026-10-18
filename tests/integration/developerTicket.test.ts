@@ -131,15 +131,18 @@ function homeWithSavedTicket(newticket: string): string {
 
 /**
  * 开发者工具开启的自动化接口：按方法名回包，reply 返回 null 时不回。
- * 和真实的一样，会把别的自动化会话的消息也广播过来，每条回包发两遍
+ * 和真实的一样，回包前会广播别的自动化会话的消息（broadcast），每条回包发两遍
  */
-async function startAutomator(reply: (method: string) => AutomatorReply | null) {
+async function startAutomator(
+  reply: (method: string) => AutomatorReply | null,
+  broadcast = [JSON.stringify({ id: 'another-session', result: { ticket: 'not-for-you' } })]
+) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   server.on('connection', socket => {
     socket.on('message', data => {
       const { id, method } = JSON.parse(String(data));
-      socket.send(JSON.stringify({ id: 'another-session', result: { ticket: 'not-for-you' } }));
+      broadcast.forEach(message => socket.send(message));
       const result = reply(method);
       if (!result) return;
       const response = JSON.stringify({ id, ...result });
@@ -219,6 +222,16 @@ describe('新版开发者工具（Electron）', () => {
 
     expect(wechat).toEqual(['before', 'after']);
     expect(devtools.automatedProjects()).toEqual([project]);
+  });
+
+  it('自动化接口广播了不是对象的消息时，开发者照样能登录', async () => {
+    const devtools = installDevtools('electron');
+    devtools.reply(agentStarted((await startAutomator(() => currentTicket('t'), ['null', '42', '"text"', 'not json'])).port));
+    const login = await serveRealLogin(createProject({}));
+    const wechat = stubWechat();
+
+    expect((await login()).status).toBe(200);
+    expect(wechat).toEqual(['t']);
   });
 
   it('同时发起的几次登录只让开发者工具开启一次自动化', async () => {
@@ -353,6 +366,23 @@ describe('新版开发者工具（Electron）', () => {
 
     expect(status).toBe(500);
     expect(body.error).toContain('该文件路径下项目不存在');
+
+    // 原因里有英文撇号时，util.inspect 改用双引号
+    devtools.reply(`[error] {
+  code: 10,
+  message: "Error: can't open project (code 10)\\n" +
+    '    at j.openProjectWindow (/Applications/wechatwebdevtools.app/Contents/Resources/app.asar/js/a.js:2:1)'
+}
+`);
+    expect((await login()).body.error).toContain("can't open project (code 10)");
+
+    // 直接打印出来的对象不是 JSON
+    devtools.reply(`{
+  code: 10,
+  message: 'Error: 项目未被信任'
+}
+`);
+    expect((await login()).body.error).toContain('项目未被信任');
   });
 });
 

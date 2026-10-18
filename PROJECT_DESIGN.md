@@ -294,7 +294,8 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 | 原生 → 渲染层 | `WeixinJSBridge.on(event, cb)` | 原生组件的事件：`onMultiPickerViewChange`、`onWebviewStartLoad` / `onWebviewFinishLoad` |
 
 数据通过 `目标window.JSON.parse(JSON.stringify(data))` 在目标 iframe 的 realm 中重建，
-避免跨 realm 的 `instanceof Array` 判断失效。
+避免跨 realm 的 `instanceof Array` 判断失效。原生接口的结果和事件里可能有 ArrayBuffer（`readFile` 读到的文件、下载的音频），
+JSON 会把它变成 `{}`，所以单独复制成目标 realm 的 ArrayBuffer；`setData` 等消息数据量大，不做这一步。
 
 > 与最初方案的差异：最初设计中的命令字 `APPSERVICE_PUBLISH` / `WEBVIEW_PUBLISH` / `APPSERVICE_INVOKE` /
 > `APPSERVICE_ON_EVENT` 是开发者工具内部 postMessage 的消息名；基础库本身面对的是上表中的 WeixinJSBridge 接口，
@@ -327,15 +328,17 @@ navigateTo(url)
 | network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
 | media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
+| audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
 | webView | web-view 组件的网页视图，见下文「原生组件」 |
 | savedFiles | 保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
-| misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志）、临时文件、登录等开放接口的模拟数据、剪贴板 |
+| libFiles | 渲染层按需加载基础库文件（`loadLibFilesSync`），3.3.x、3.5.x 的 video 等组件用，见下文「原生组件」 |
+| misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志；`readFile` 读代码包里的文件时向开发服务器取）、临时文件、登录等开放接口的模拟数据、剪贴板 |
 | 路由 | 由 Host 实现 |
 
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。
 其中业务代码调用的（逻辑层发起、名字在 `wx` 上）还会记入测试 API 的 `errors()`，每个 API 一次；
-基础库内部调用的原生接口（如 `getAppContact`、渲染层的 `loadLibFilesSync`）不记，因为业务既没调用也 mock 不了。
+基础库内部调用的原生接口（如 `getAppContact`）不记，因为业务既没调用也 mock 不了。
 测试中可以用 `__wxa_test_api__.mock()` 覆盖任意 API。
 
 #### 原生组件
@@ -344,7 +347,7 @@ navigateTo(url)
 
 | 组件 | 实现 | 状态 |
 | --- | --- | --- |
-| canvas（2d / webgl / 旧版 canvas-id）、video、map、camera、audio | 基础库的网页实现：`<canvas>`、`<video>`、腾讯地图网页 SDK、`getUserMedia` | ✅ map 需要联网；camera 需要浏览器授权摄像头；video 的 src 只能是 http(s) |
+| canvas（2d / webgl / 旧版 canvas-id）、video、map、camera、audio | 基础库的网页实现：`<canvas>`、`<video>`、腾讯地图网页 SDK、`getUserMedia` | ✅ map 需要联网；camera 需要浏览器授权摄像头；video 的 src 只能是 http(s)，3.3.x、3.5.x 的 video 按需加载（见下） |
 | cover-view、cover-image、input、textarea、picker-view、editor | 基础库的网页实现 | ✅ |
 | picker | 宿主弹出选择器（`showPickerView` 等） | ✅ |
 | web-view | 宿主在页面里嵌入 iframe（`insertHTMLWebView` 等） | ✅ 有限制，见下 |
@@ -372,6 +375,16 @@ navigateTo(url)
   和真机一样，两种来源都可选时先弹菜单。浏览器只允许在用户点击后的几秒内打开文件选择框（页面里的点击也算，会传到宿主页），
   没有经过点击就调用时也先弹菜单，用户点菜单就是一次点击；否则选择框打不开，回调永远不来。
   `chooseMedia` 只支持图片。`previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
+- **音频（InnerAudioContext）**：3.5.8 起平台是 devtools 时基础库用 Web Audio 播放，先把音频读成 ArrayBuffer。
+  网络音频经带 `__skipDomainCheck__` 的内部请求下载，宿主按请求的形状（`responseType` 为 `arraybuffer` 且带 `enableCache`，
+  2.32.3 到 3.17.4 都是这样）只放行这一种，经代理下载；代码包里的音频经 `readFile` 向开发服务器读取。
+  3.3.x 及更早版本默认调原生接口（`createAudioInstance`、`setAudioState`、`operateAudio` 等；业务指定 `useWebAudioImplement` 时同样用 Web Audio），宿主用 `<audio>` 实现：
+  时间以毫秒为单位；基础库每次改属性都带上全部状态，其中的进度是旧值，只取 src、音量等能设置的属性；
+  timeupdate 由基础库轮询 `getAudioState` 产生。浏览器缓冲后只派发 playing，所以把 playing 当作 play 推送，
+  否则基础库把 waiting 当作暂停、不再更新进度；播到结尾时浏览器先派发的 pause 不推送
+- **按需加载的组件**：3.3.x、3.5.x 的 video 等组件放在单独的基础库文件里，渲染层用到时调 `loadLibFilesSync`。
+  宿主同步读取文件，脚本在调用返回前于渲染层执行完（基础库在调用前后设置、清理 `window.__Behaviour` 等全局变量），
+  各文件的内容按顺序放在 `__codes` 里交回，基础库从中取 CSS 自己插入。逻辑层也会调它加载伴生 SDK，那条路照旧只返回成功（见下文「伴生 SDK 子包」）
 - **保存的文件**：`getFileInfo` 向开发服务器查临时文件的大小（不返回 digest）。`saveFile` 和真机一样把临时文件存成新文件、删掉原来的，
   新文件也在开发服务器上，image 能直接显示。保存记录写在 Storage 里，同样按 appid 隔离、整页刷新后还在；开发服务器重启后文件没了，
   记录随之失效，`getSavedFileInfo` 报文件不存在，Painter 等用它做缓存的库会重新下载。FileSystemManager 的 `saveFile`
@@ -427,7 +440,7 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 **网络代理**：小程序设置的请求头放在 `x-wxa-headers`（JSON）里传给代理，cookie、referer 等浏览器
 禁止设置的请求头因此也能带上；响应头和 `set-cookie` 以 URL 编码的 JSON 返回。代理只监听本机地址，
 用于开发环境。只转发小程序自己的请求：基础库自己的请求（数据上报、配置拉取等，带 `__skipDomainCheck__` 标记）
-直接按失败返回，不发往网络，也不记入 `requests()`。
+直接按失败返回，不发往网络，也不记入 `requests()`。唯一的例外是 InnerAudioContext 下载音频（见「原生组件」），同样不记入 `requests()`。
 
 ---
 

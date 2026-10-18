@@ -101,7 +101,7 @@ describe('网络 API', () => {
     return { apis, events, fetchMock };
   }
 
-  const proxied = (body: string, status = 200, header: object = { 'content-type': 'text/plain' }) => async () =>
+  const proxied = (body: BodyInit, status = 200, header: object = { 'content-type': 'text/plain' }) => async () =>
     new Response(body, {
       status,
       headers: {
@@ -182,6 +182,27 @@ describe('网络 API', () => {
     expect(recorded).toEqual([]);
   });
 
+  it('基础库为 InnerAudioContext 下载音频的内部请求经代理发出，success 的 data 是 ArrayBuffer，不记入请求记录', async () => {
+    const recorded: unknown[] = [];
+    const events: Array<[string, any]> = [];
+    const fetchMock = vi.fn(async (..._args: unknown[]) => proxied(new Uint8Array([1, 2, 255]), 200, { 'content-type': 'audio/mpeg' })());
+    vi.stubGlobal('fetch', fetchMock);
+    const apis = createNetworkApis({
+      emit: (event, data) => events.push([event, data]), defaultTimeout: () => 60000, onRequest: request => recorded.push(request)
+    });
+
+    // 平台是 devtools 时 InnerAudioContext 用 Web Audio 播放，基础库这样把音频下载成 ArrayBuffer
+    const audio = { url: 'https://cdn.example.com/a.mp3', responseType: 'arraybuffer', enableHttp2: true, enableCache: true, __skipDomainCheck__: true };
+    const { requestTaskId } = call(apis, 'createRequestTask', audio);
+
+    await vi.waitFor(() => expect(events.some(([, data]) => data.state === 'success')).toBe(true));
+    expect(fetchMock.mock.calls[0][0]).toBe('/__wxa__/proxy?url=' + encodeURIComponent('https://cdn.example.com/a.mp3'));
+    const success = events.find(([, data]) => data.state === 'success')![1];
+    expect(success).toMatchObject({ requestTaskId, statusCode: 200, header: { 'content-type': 'audio/mpeg' } });
+    expect(new Uint8Array(success.data)).toEqual(new Uint8Array([1, 2, 255]));
+    expect(recorded).toEqual([]);
+  });
+
   it('downloadFile 把下载的文件存成开发服务器上的临时文件，返回它的地址', async () => {
     const saved: Array<{ url: string; content: string }> = [];
     const { apis, events } = setup(proxied('file-content'));
@@ -225,6 +246,60 @@ describe('其它 API', () => {
     expect(phoneCodeSeenByBaseLib(call(apis, 'getPhoneNumber'))).toMatch(/^mock_phone_code_/);
     expect(call(apis, 'getAccountInfoSync').miniProgram.appId).toBe('wx1');
     expect(call(apis, 'requestPayment').errMsg).toMatch(/^requestPayment:fail /);
+  });
+});
+
+describe('读取代码包里的文件', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // 开发服务器以项目目录为根目录提供代码包里的文件
+  function setup() {
+    const files: Record<string, Uint8Array<ArrayBuffer>> = {
+      '/assets/data.bin': new Uint8Array([1, 2, 255]),
+      '/assets/hello.txt': new TextEncoder().encode('你好'),
+      // 文件名里的 # 和 ? 要编码，否则会被当成地址的片段和查询
+      '/assets/c%23%3F.txt': new TextEncoder().encode('sharp')
+    };
+    const fetchMock = vi.fn(async (url: string) => (files[url] ? new Response(files[url]) : new Response('', { status: 404 })));
+    vi.stubGlobal('fetch', fetchMock);
+    return { apis: createMiscApis('wx1'), fetchMock };
+  }
+
+  it('readFile 不指定编码时得到 ArrayBuffer，指定 utf8 时得到文本，路径可以不以 / 开头', async () => {
+    const { apis } = setup();
+    const binary = await call(apis, 'readFile', { filePath: '/assets/data.bin' });
+    expect(binary.errMsg).toBe('readFile:ok');
+    expect(new Uint8Array(binary.data)).toEqual(new Uint8Array([1, 2, 255]));
+    expect(await call(apis, 'readFile', { filePath: 'assets/hello.txt', encoding: 'utf8' })).toMatchObject({ data: '你好' });
+    expect(await call(apis, 'readFile', { filePath: '/assets/c#?.txt', encoding: 'utf8' })).toMatchObject({ data: 'sharp' });
+  });
+
+  it('代码包里没有的文件、不支持的编码，readFile 失败', async () => {
+    const { apis } = setup();
+    expect((await call(apis, 'readFile', { filePath: '/assets/none.bin' })).errMsg).toBe(
+      'readFile:fail no such file or directory, open /assets/none.bin'
+    );
+    expect((await call(apis, 'readFile', { filePath: '/assets/hello.txt', encoding: 'hex' })).errMsg).toMatch(/^readFile:fail /);
+  });
+
+  it('用户目录（http://usr/）下的文件只在内存文件系统里找，不向开发服务器取', async () => {
+    const { apis, fetchMock } = setup();
+    call(apis, 'writeFile', { filePath: 'http://usr/a.txt', data: 'local' });
+    expect(await call(apis, 'readFile', { filePath: 'http://usr/a.txt' })).toMatchObject({ data: 'local' });
+    expect((await call(apis, 'readFile', { filePath: 'http://usr/assets/data.bin' })).errMsg).toMatch(/^readFile:fail no such file/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('用户目录下有同名文件时，不带协议的路径仍读代码包里的文件', async () => {
+    const { apis } = setup();
+    call(apis, 'mkdir', { dirPath: 'http://usr/assets' });
+    call(apis, 'writeFile', { filePath: 'http://usr/assets/data.bin', data: 'local' });
+
+    const result = await call(apis, 'readFile', { filePath: 'assets/data.bin' });
+
+    expect(new Uint8Array(result.data)).toEqual(new Uint8Array([1, 2, 255]));
   });
 });
 

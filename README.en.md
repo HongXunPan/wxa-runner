@@ -102,8 +102,8 @@ See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking
 | Rendering | WXML, WXSS, WXS, custom components, App / Page / Component lifecycles |
 | Routing | navigateTo, redirectTo and the other page routes, a 10-level page stack, tab bar |
 | UI | Navigation bar, tab bar, toast / modal / actionSheet; iPhone X by default |
-| Components | picker, canvas, camera, web-view |
-| Media | chooseImage and chooseMedia (images only) pick files through the browser; previewImage, getImageInfo; saving to the album downloads the image |
+| Components | picker, canvas, camera, video, map (needs network access), web-view |
+| Media | chooseImage and chooseMedia (images only) pick files through the browser; previewImage, getImageInfo; saving to the album downloads the image; InnerAudioContext plays audio |
 | Network | request, upload and download through a proxy (no CORS limits), WebSocket |
 | Storage | Storage, basic FileSystemManager operations |
 
@@ -113,7 +113,7 @@ Verified on real uni-app (Vue 3) projects; verified base library versions: 2.32.
 
 - Base library 3.7.1 and later is never picked automatically: choose it with `--baselib` or `WXA_BASELIB`, and a warning says it is outside the verified range. The bundled base library is 3.7.0 only, so download newer versions in WeChat DevTools first
 - Unimplemented native APIs return success; tests can catch them through `errors()` (see [docs/testing.md](./docs/testing.md#注意事项))
-- No video, map, audio or Bluetooth ([#8](https://github.com/open-wxa/wxa-runner/issues/8)); `chooseMedia` can't pick videos
+- No Bluetooth or other device capabilities; `chooseMedia` can't pick videos
 - No plugins, async subpackages or Workers ([#10](https://github.com/open-wxa/wxa-runner/issues/10))
 - Without WeChat DevTools (on Linux or in CI, say): x86-64 only; the compiler is older, with small template-runtime differences (such as a limit of 16,000 nodes per page); the region picker is unavailable
 

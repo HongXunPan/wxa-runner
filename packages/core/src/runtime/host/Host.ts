@@ -7,6 +7,8 @@
 
 import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
+import { createAudioApis } from './api/audio';
+import { createLibFileApis } from './api/libFiles';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
 import { createNetworkApis, RequestLog } from './api/network';
@@ -126,7 +128,7 @@ export class Host implements HostApi {
     const webviewId = kind === 'webview' ? this.webviewIdOf(win) : this.currentPage()?.id ?? 0;
     const result = this.api.invoke(api, args, { api, from: kind, webviewId });
     const deliver = (res: ApiResult) => {
-      if (callback) callback(kind === 'service' ? this.cloneForService(res) : cloneInto(win, res));
+      if (callback) callback(cloneNativeInto(kind === 'service' ? this.serviceWindow()! : win, res));
     };
 
     if (result && typeof (result as Promise<ApiResult>).then === 'function') {
@@ -170,7 +172,7 @@ export class Host implements HostApi {
 
   /**
    * 业务代码只运行在逻辑层，所以只记逻辑层调用、名字在 wx 上的 API，每个 API 一次。
-   * 其余是基础库内部调用的原生接口（如 getPermissionBytes、loadLibFilesSync），业务既没调用也 mock 不了
+   * 其余是基础库内部调用的原生接口（如 getPermissionBytes），业务既没调用也 mock 不了
    */
   private reportUnimplemented({ api, from }: ApiContext) {
     const wx = (this.serviceWindow() as any)?.wx;
@@ -397,7 +399,7 @@ export class Host implements HostApi {
   emitToService(event: string, data: unknown, webviewId?: number) {
     const service = this.service;
     if (!service) return;
-    const payload = this.cloneForService(data);
+    const payload = cloneNativeInto(this.serviceWindow()!, data);
     queueMicrotask(() => service.bridge.__dispatchOn(event, payload, webviewId));
   }
 
@@ -447,6 +449,8 @@ export class Host implements HostApi {
         routes: this.routes,
         onRequest: request => this.requests.add(request)
       }),
+      ...createAudioApis({ emit: (event, data) => this.emitToService(event, data) }),
+      ...createLibFileApis({ windowOf: webviewId => this.pages.get(webviewId)?.win }),
       ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
       ...createMediaApis({
         showActionSheet: options => this.shell.showActionSheet(options),
@@ -475,6 +479,31 @@ export class Host implements HostApi {
 export function cloneInto<T>(win: Window, value: T): T {
   if (value === undefined) return value;
   return (win as any).JSON.parse(JSON.stringify(value));
+}
+
+const BUFFER_KEY = '__wxa_array_buffer__';
+
+/**
+ * 原生接口的结果和事件交给 iframe：同 cloneInto，另外把 ArrayBuffer（readFile 读到的文件、下载的音频）复制成目标 realm 的。
+ * 只有原生接口会给出 ArrayBuffer；setData 等消息数据量大，仍走 cloneInto，省掉逐个字段的检查
+ */
+function cloneNativeInto<T>(win: Window, value: T): T {
+  if (value === undefined) return value;
+  const buffers: ArrayBuffer[] = [];
+  const json = JSON.stringify(value, (_key, item) => {
+    if (Object.prototype.toString.call(item) !== '[object ArrayBuffer]') return item;
+    buffers.push(item);
+    return { [BUFFER_KEY]: buffers.length - 1 };
+  });
+  const targetJson: JSON = (win as any).JSON;
+  if (!buffers.length) return targetJson.parse(json);
+  return targetJson.parse(json, (_key, item) => (item?.[BUFFER_KEY] === undefined ? item : copyBuffer(win, buffers[item[BUFFER_KEY]])));
+}
+
+function copyBuffer(win: Window, source: ArrayBuffer): ArrayBuffer {
+  const copy: ArrayBuffer = new (win as any).ArrayBuffer(source.byteLength);
+  new Uint8Array(copy).set(new Uint8Array(source));
+  return copy;
 }
 
 /**

@@ -49,6 +49,17 @@ Page({
     }));
   },
 
+  uploadBytes(url) {
+    return new Promise(resolve => wx.request({
+      url,
+      method: 'POST',
+      header: { 'content-type': 'application/octet-stream' },
+      data: new Uint8Array([0x89, 0x50, 0xff]).buffer,
+      success: res => resolve(res.data),
+      fail: err => resolve(err.errMsg)
+    }));
+  },
+
   /** 按 arraybuffer 请求，返回「是不是 ArrayBuffer 字节列表」 */
   download(url) {
     return new Promise(resolve => wx.request({

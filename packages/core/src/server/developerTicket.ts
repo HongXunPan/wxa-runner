@@ -92,10 +92,15 @@ async function requestTicketOnceWindowReady(port: number, projectPath: string): 
  * @returns 自动化接口的端口
  */
 async function startAutomation(cli: string, projectPath: string): Promise<number> {
+  // 开发者工具设了「CLI 访问令牌」时，命令行自己从继承的环境变量 WECHAT_DEVTOOLS_CLI_TOKEN 读取
   const stdout = await runCli(cli, ['agent', 'start', '--project', projectPath, '--auto-port', String(AUTO_PORT), '--lang', 'zh']);
   // 成功时最后打印一段 JSON；失败时退出码多半还是 0，错误以 [error] 开头打印
-  const json = stdout.match(/^\{$[\s\S]*?^\}$/m)?.[0];
-  const autoPort = json ? Number(JSON.parse(json).autoPort) : NaN;
+  let autoPort = NaN;
+  try {
+    autoPort = Number(JSON.parse(stdout.match(/^\{$[\s\S]*?^\}$/m)?.[0] ?? '').autoPort);
+  } catch {
+    // 没有 JSON，从输出里找原因
+  }
   if (Number.isInteger(autoPort) && autoPort > 0) return autoPort;
 
   if (stdout.includes('服务端口已关闭')) {
@@ -123,13 +128,16 @@ function runCli(cli: string, args: string[]): Promise<string> {
   });
 }
 
-/** 命令行把错误对象按 util.inspect 的格式打印，原因在 message 的第一行 */
+/**
+ * 命令行把错误对象按 util.inspect 的格式打印，原因在 message 的第一行。
+ * util.inspect 默认用单引号，字符串里有单引号时改用双引号，两种都有时用反引号
+ */
 function cliErrorMessage(stdout: string): string {
   const output = stdout.replace(/\x1b\[[0-9;]*m/g, '');
   const start = output.indexOf('[error]');
   const error = (start < 0 ? output : output.slice(start + '[error]'.length)).trim();
-  const message = error.match(/message: '((?:[^'\\]|\\.)*?)(?:\\n|')/)?.[1];
-  return (message ?? error.split('\n')[0]) || '命令行没有输出';
+  const message = error.match(/message: (['"`])((?:\\.|(?!\1)[^\\])*?)(?:\\n|\1)/)?.[2];
+  return message ?? (error.replace(/\s+/g, ' ').slice(0, 200) || '命令行没有输出');
 }
 
 /**
@@ -165,7 +173,7 @@ function requestTicket(port: number): Promise<DeveloperTicket> {
       } catch {
         return;
       }
-      if (message.id !== id) return;
+      if (message?.id !== id) return;
       if (message.error) settle(() => reject(explainAutomatorError(String(message.error.message))));
       else if (typeof message.result?.ticket !== 'string') settle(() => reject(new Error('微信开发者工具没有返回登录票据')));
       else settle(() => resolve({ newticket: message.result.ticket, expiredAt: message.result.expiredTime }));

@@ -67,56 +67,55 @@ const installed = e2eReady ? new Set(listBaseLibs().map(lib => lib.version)) : n
 
 describe.skipIf(!e2eReady)('基础库内部调用的原生接口', () => {
   for (const version of VERIFIED_BASELIBS) {
-    it.skipIf(!installed.has(version))(`基础库 ${version}：页面只用已实现的 API 和原生组件时，errors() 为空`, async () => {
-      const runner = await startRunner({
-        'app.json': { pages: ['pages/index/index'] },
-        'pages/index/index.json': {},
-        // 原生组件和第一次调用 wx API 时，基础库会调用一些运行时没有实现的内部接口
-        'pages/index/index.wxml': '<video src="/missing.mp4"></video><map latitude="0" longitude="0"></map><canvas type="2d"></canvas><view id="step">{{step}}</view>',
-        // 不等回调：2.32.3 的隐私检查要 getAppContact 返回真实数据，否则剪贴板这类接口不会回调
-        'pages/index/index.js': "Page({ data: { step: '' }, onLoad() { wx.getClipboardData({}); this.setData({ step: '已调用' }); } });"
-      }, { baseLibVersion: version });
-      try {
+    describe.skipIf(!installed.has(version))(`基础库 ${version}`, () => {
+      let runner: Runner;
+
+      beforeAll(async () => {
+        runner = await startRunner({
+          'app.json': {
+            pages: ['pages/index/index', 'pages/privacy/privacy'],
+            permission: { 'scope.userLocation': { desc: '展示附近的门店' } },
+            requiredPrivateInfos: ['getLocation']
+          },
+          'pages/index/index.json': {},
+          // 原生组件和第一次调用 wx API 时，基础库会调用一些运行时没有实现的内部接口
+          'pages/index/index.wxml': '<video src="/missing.mp4"></video><map latitude="0" longitude="0"></map><canvas type="2d"></canvas><view id="step">{{step}}</view>',
+          'pages/index/index.js': "Page({ data: { step: '' }, onLoad() { wx.getClipboardData({}); this.setData({ step: '已调用' }); } });",
+          'pages/privacy/privacy.json': {},
+          'pages/privacy/privacy.wxml': '<view>{{done}}</view>',
+          'pages/privacy/privacy.js': `Page({
+            data: { done: 0, results: {} },
+            onLoad() {
+              const record = name => res => this.setData({ done: this.data.done + 1, ['results.' + name]: res.errMsg });
+              wx.authorize({ scope: 'scope.userLocation', complete: record('authorize') });
+              wx.getLocation({ type: 'gcj02', complete: record('getLocation') });
+              wx.getClipboardData({ complete: record('getClipboardData') });
+            }
+          });`
+        }, { baseLibVersion: version });
+      });
+
+      afterAll(async () => {
+        await runner?.close();
+      });
+
+      it('页面只用已实现的 API 和原生组件时，errors() 为空', async () => {
         const frame = await runner.open('/');
         await expectText(frame, '#step', '已调用');
 
         expect(await runner.page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([]);
-      } finally {
-        await runner.close();
-      }
-    });
+      });
 
-    it.skipIf(!installed.has(version))(`基础库 ${version}：业务调用要做隐私检查的接口（授权、定位、剪贴板）都能收到回调`, async () => {
-      const runner = await startRunner({
-        'app.json': {
-          pages: ['pages/index/index'],
-          permission: { 'scope.userLocation': { desc: '展示附近的门店' } },
-          requiredPrivateInfos: ['getLocation']
-        },
-        'pages/index/index.json': {},
-        'pages/index/index.wxml': '<view>{{done}}</view>',
-        'pages/index/index.js': `Page({
-          data: { done: 0, results: {} },
-          onLoad() {
-            const record = name => res => this.setData({ done: this.data.done + 1, ['results.' + name]: res.errMsg });
-            wx.authorize({ scope: 'scope.userLocation', complete: record('authorize') });
-            wx.getLocation({ type: 'gcj02', complete: record('getLocation') });
-            wx.getClipboardData({ complete: record('getClipboardData') });
-          }
-        });`
-      }, { baseLibVersion: version });
-      try {
+      it('业务调用要做隐私检查的接口（授权、定位、剪贴板）都能收到回调', async () => {
         const { page } = runner;
-        await runner.open('/');
+        await runner.open('/?path=pages/privacy/privacy');
         await page.waitForFunction(() => window.__wxa_test_api__.pageData()?.done === 3, undefined, { timeout: 5000 }).catch(() => undefined);
 
         expect(await page.evaluate(() => window.__wxa_test_api__.pageData())).toEqual({
           done: 3,
           results: { authorize: 'authorize:ok', getLocation: 'getLocation:ok', getClipboardData: 'getClipboardData:ok' }
         });
-      } finally {
-        await runner.close();
-      }
+      });
     });
   }
 });

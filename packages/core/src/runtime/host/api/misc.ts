@@ -167,8 +167,11 @@ export function createMiscApis(appid: string, options?: MiscApiOptions): Record<
     },
 
     // 基础库经这两个接口向后台拉各种配置和小程序信息
-    operateWXData: (args, { api }) =>
-      args.data?.api_name === 'webapi_getwxanetwork' ? bizDomainUnavailable(api) : ok(api),
+    operateWXData: (args, { api }) => {
+      if (args.data?.api_name === 'webapi_getwxanetwork') return bizDomainUnavailable(api);
+      if (args.data?.api_name === 'webapi_getwxauserprivacyauthinfo') return ok(api, { data: { data: JSON.stringify(PRIVACY_AUTH_INFO) } });
+      return ok(api);
+    },
     getAppContact: (args, { api }) =>
       args.keyPath === 'WxaAppInfo.Network.BizDomain' ? bizDomainUnavailable(api) : ok(api),
 
@@ -234,6 +237,12 @@ async function readPackageFile(filePath: string, encoding: unknown): Promise<str
 function mockUser() {
   return { nickName: 'wxa-runner', avatarUrl: '', gender: 0, country: '', province: '', city: '', language: 'zh_CN' };
 }
+
+/**
+ * 隐私授权信息：不用弹窗、没有未授权的接口，等于用户已经同意了隐私协议。基础库调用剪贴板、定位、选图等涉及隐私的接口前
+ * 先拉取它，从结果的 data 里解析；2.32.3 拿不到时在回调里抛错，这些接口一直不回调。wording 是弹窗的文案，不弹窗也要有
+ */
+const PRIVACY_AUTH_INFO = { action_code: 0, need_popup_scope_list: [], unauth_scope_list: [], wording: {} };
 
 /**
  * 不校验业务域名，等同开发者工具的「不校验合法域名、web-view（业务域名）」：拿到空的业务域名列表时，

@@ -44,8 +44,11 @@ const MODULE_PARAMS = [
   'WebSocket', 'Reporter', 'webkit', 'WeixinJSCore'
 ].join(', ');
 
-/** 行首的 import / export 语句（不匹配 import() 动态导入） */
-const ESM_SYNTAX = /^\s*(import\s*[\w*{'"]|export\s+(default|const|let|var|function|class|async|\{|\*))/m;
+/**
+ * import / export 语句：在行首，或者在压缩成一行的代码里紧跟着 ; 或 }。
+ * 不匹配 import() 动态导入，也不匹配 importance 这类变量名
+ */
+const ESM_SYNTAX = /(?:^|[;}])\s*(?:import\s*[{*'"]|import\s+[\w$]|export\s*[{*]|export\s+(?:default|const|let|var|function|class|async)\b)/m;
 
 type ChangeKind = 'config' | 'wxml' | 'wxss' | 'js';
 

@@ -22,7 +22,11 @@ function demoProject() {
     'components/comp/comp.js': 'Component({})',
     'utils/util.js': "module.exports = { hi: () => 'hi' }",
     'utils/esm.js': "import { hi } from './util';\nexport const twice = () => hi() + hi();\n",
-    'utils/broken-esm.js': 'export const = 1;'
+    'utils/broken-esm.js': 'export const = 1;',
+    // 压缩成一行的 SDK，export 不在行首
+    'utils/minified-esm.js': 'const hi=function(){return"hi"};export default hi;',
+    'utils/minified-esm-braces.js': 'function a(){return 1}export{a as one};',
+    'utils/cjs-like-esm.js': 'var importance=1;module.exports={exported:importance};'
   });
 }
 
@@ -43,10 +47,29 @@ describe('JS 模块包装', () => {
     expect(script).toContain('sourceMappingURL=data:application/json');
   });
 
+  it('压缩成一行、export 不在行首的文件也转换为 CommonJS，能正常加载', () => {
+    expect(runModule(builder.getModuleScript('utils/minified-esm.js')).default()).toBe('hi');
+    expect(runModule(builder.getModuleScript('utils/minified-esm-braces.js')).one()).toBe(1);
+  });
+
+  it('CommonJS 文件里出现 exports、importance 等字样，不当作 ES Module 转换', () => {
+    const script = builder.getModuleScript('utils/cjs-like-esm.js');
+    expect(script).toContain('var importance=1;module.exports={exported:importance};');
+    expect(script).not.toContain('sourceMappingURL');
+    expect(runModule(script)).toEqual({ exported: 1 });
+  });
+
   it('转换失败时输出控制台错误而不是让整个逻辑层崩溃', () => {
     expect(builder.getModuleScript('utils/broken-esm.js')).toMatch(/^console\.error\(".*utils\/broken-esm\.js 转换失败/);
   });
 });
+
+/** 像逻辑层一样执行 define 包装好的模块，返回它的 module.exports */
+function runModule(script: string): any {
+  const module = { exports: {} };
+  new Function('define', script)((_id: string, factory: Function) => factory(() => ({}), module, module.exports));
+  return module.exports;
+}
 
 describe('toJs', () => {
   it('转义 </script> 和行分隔符，结果仍是等价的 JSON', () => {

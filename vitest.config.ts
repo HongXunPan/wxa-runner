@@ -7,7 +7,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 60000,
     // e2e 每个文件都要起一个 Chrome 和一个开发服务器。完整版 Chrome 多个实例同时运行时偶尔会卡死
-    // （辅助进程退出后主进程一直等，launch / newPage 不返回），所以 e2e 单独放进一个进程池并限制并发
+    // （launch / newPage 不返回，macOS 上的原因见 tests/e2e/runner.ts 的 chromeLaunchOptions），所以 e2e 单独放进一个进程池并限制并发
     poolMatchGlobs: [['**/tests/e2e/**', 'forks']],
     poolOptions: { forks: { minForks: 1, maxForks: 2 } },
     coverage: {

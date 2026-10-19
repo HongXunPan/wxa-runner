@@ -10,11 +10,10 @@ import path from 'path';
 import { Browser, chromium, Frame, Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
+import { createProject, REPO_ROOT } from '../helpers';
+import { chromeLaunchOptions, e2eReady } from './runner';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
 const INDEX_JS = `
 Page({
@@ -87,7 +86,7 @@ function miniProgram() {
   });
 }
 
-describe.skipIf(!ready)('热更新', () => {
+describe.skipIf(!e2eReady)('热更新', () => {
   let server: DevServer | undefined;
   let browser: Browser;
   let page: Page;
@@ -140,7 +139,7 @@ describe.skipIf(!ready)('热更新', () => {
   const hotUpdated = () => page.waitForEvent('console', { predicate: msg => msg.text().includes('[wxa-runner] 热更新完成'), timeout: 10000 });
 
   beforeAll(async () => {
-    browser = await chromium.launch({ executablePath: CHROME });
+    browser = await chromium.launch(chromeLaunchOptions);
   });
 
   beforeEach(async () => {

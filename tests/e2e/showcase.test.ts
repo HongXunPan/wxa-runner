@@ -10,13 +10,12 @@ import path from 'path';
 import { Browser, chromium, Frame, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { EXAMPLES, hasToolchain, REPO_ROOT } from '../helpers';
+import { EXAMPLES, REPO_ROOT } from '../helpers';
+import { CHROME, chromeLaunchOptions, e2eReady } from './runner';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
-describe.skipIf(!ready)('showcase 示例', () => {
+describe.skipIf(!e2eReady)('showcase 示例', () => {
   let server: DevServer;
   let browser: Browser;
   let page: Page;
@@ -46,7 +45,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
       logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
     });
     base = await server.start();
-    browser = await chromium.launch({ executablePath: CHROME });
+    browser = await chromium.launch(chromeLaunchOptions);
     page = await browser.newPage();
   });
 
@@ -183,7 +182,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
 
   it('页面和滚动容器不显示滚动条，也不占用页面宽度（与真机的浮层滚动条一致）', async () => {
     // Playwright 默认用 --hide-scrollbars 启动，这里去掉它，按普通浏览器的行为验证
-    const plain = await chromium.launch({ executablePath: CHROME, ignoreDefaultArgs: ['--hide-scrollbars'] });
+    const plain = await chromium.launch({ ...chromeLaunchOptions, ignoreDefaultArgs: ['--hide-scrollbars'] });
     try {
       const tab = await plain.newPage();
       await tab.goto(base + '/?path=pages/detail/detail&id=1');
@@ -218,6 +217,7 @@ describe.skipIf(!ready)('showcase 示例', () => {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wxa-chrome-'));
     fs.mkdirSync(path.join(profile, 'Default'));
     fs.writeFileSync(path.join(profile, 'Default/Preferences'), JSON.stringify({ webkit: { webprefs: { default_font_size: 20 } } }));
+    // 用不了 chromeLaunchOptions，见它的注释
     const context = await chromium.launchPersistentContext(profile, { executablePath: CHROME });
     try {
       const tab = await context.newPage();

@@ -5,16 +5,14 @@
  * 而 ADSDK 由 WAAppAd.js 提供、运行时不加载，于是抛 TypeError 打断整个 onLoad。
  */
 
-import fs from 'fs';
 import path from 'path';
 import { Browser, chromium, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
+import { createProject, REPO_ROOT } from '../helpers';
+import { chromeLaunchOptions, e2eReady } from './runner';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
 const PAGE_JS = `
 Page({
@@ -30,7 +28,7 @@ Page({
 });
 `;
 
-describe.skipIf(!ready)('伴生 SDK 子包占位', () => {
+describe.skipIf(!e2eReady)('伴生 SDK 子包占位', () => {
   let server: DevServer;
   let browser: Browser;
   let page: Page;
@@ -56,7 +54,7 @@ describe.skipIf(!ready)('伴生 SDK 子包占位', () => {
       logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
     });
     base = await server.start();
-    browser = await chromium.launch({ executablePath: CHROME });
+    browser = await chromium.launch(chromeLaunchOptions);
     page = await browser.newPage();
   });
 

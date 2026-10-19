@@ -4,16 +4,14 @@
  * 需要本机安装微信开发者工具，以及 Chrome（或通过 WXA_CHROME 指定浏览器路径）。
  */
 
-import fs from 'fs';
 import path from 'path';
 import { Browser, chromium, Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
-import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
+import { createProject, REPO_ROOT } from '../helpers';
+import { chromeLaunchOptions, e2eReady } from './runner';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const ready = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
 // 常见的登录态判断：启动时读本地 token，没有就走登录
 const APP_JS = `
@@ -81,7 +79,7 @@ function miniProgram(setup: string, overrides: Record<string, string> = {}) {
   });
 }
 
-describe.skipIf(!ready)('setup 跳过登录', () => {
+describe.skipIf(!e2eReady)('setup 跳过登录', () => {
   let server: DevServer | undefined;
   let browser: Browser;
   let page: Page;
@@ -99,7 +97,7 @@ describe.skipIf(!ready)('setup 跳过登录', () => {
   };
 
   beforeAll(async () => {
-    browser = await chromium.launch({ executablePath: CHROME });
+    browser = await chromium.launch(chromeLaunchOptions);
   });
 
   afterEach(async () => {

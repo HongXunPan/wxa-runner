@@ -6,15 +6,27 @@
 
 import fs from 'fs';
 import path from 'path';
-import { chromium, Frame, Page } from 'playwright';
+import { chromium, Frame, LaunchOptions, Page } from 'playwright';
 import { expect } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
 import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+export const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 export const e2eReady = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
+
+/**
+ * e2e 用 chromium.launch 启动 Chrome 时都要带上这些选项
+ *
+ * macOS 上关掉了 App Nap：没有窗口的 Chrome 偶尔会在申请 App Nap 断言时一直等系统服务 RunningBoard，主线程卡住后
+ * launch、newContext、newPage 都不再返回，多个 Chrome 同时运行时更容易遇到（#37）。
+ * launchPersistentContext 不能用：它在命令行末尾加了 about:blank，再加上关 App Nap 的参数，headless 模式会拒绝启动
+ */
+export const chromeLaunchOptions: LaunchOptions =
+  process.platform === 'darwin'
+    ? { executablePath: path.join(__dirname, 'chrome-no-app-nap.sh'), env: { ...process.env, WXA_CHROME_BINARY: CHROME } }
+    : { executablePath: CHROME };
 
 export interface RunnerOptions {
   chromeArgs?: string[];
@@ -52,7 +64,7 @@ export async function startRunner(files: Record<string, string | object>, option
     logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
   });
   const base = await server.start();
-  const browser = await chromium.launch({ executablePath: CHROME, args: options.chromeArgs });
+  const browser = await chromium.launch({ ...chromeLaunchOptions, args: options.chromeArgs });
   const context = await browser.newContext({ permissions: options.permissions });
   const page = await context.newPage();
 

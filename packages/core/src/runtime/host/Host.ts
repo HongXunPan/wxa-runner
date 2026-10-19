@@ -8,6 +8,7 @@
 import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createAudioApis } from './api/audio';
+import { createFileSystemApis } from './api/fs';
 import { createLibFileApis } from './api/libFiles';
 import { createMapApis, MapOperations } from './api/map';
 import { createMediaApis } from './api/media';
@@ -23,6 +24,7 @@ import { createUiApis } from './api/ui';
 import { createWebViewApis } from './api/webView';
 import { PageStack } from './PageStack';
 import { PageView } from './PageView';
+import { cloneInto, cloneNativeInto } from './realm';
 import { chooseFiles, hasUserActivation } from './ui/fileChooser';
 import { NavigationState, PhoneShell } from './ui/PhoneShell';
 
@@ -413,7 +415,7 @@ export class Host implements HostApi {
   /** 派发给渲染层的原生事件（渲染层里 WeixinJSBridge.on 收到） */
   emitToWebview(webviewId: number, event: string, data: unknown) {
     this.pages.get(webviewId)?.dispatch((bridge, target) => {
-      const payload = cloneInto(target, data);
+      const payload = cloneNativeInto(target, data);
       queueMicrotask(() => bridge.__dispatchOn(event, payload, webviewId));
     });
   }
@@ -444,6 +446,7 @@ export class Host implements HostApi {
       switchTab: routeApi(args => this.switchTab(args.url)),
       ...createStorageApis(this.storage),
       ...createSavedFileApis(this.storage),
+      ...createFileSystemApis(),
       ...createSystemApis({
         device: this.device,
         baseLibVersion: this.info.baseLibVersion,
@@ -481,38 +484,6 @@ export class Host implements HostApi {
       })
     });
   }
-}
-
-/** 在目标 iframe 的 realm 中重建数据，避免跨 realm 的 instanceof 判断失效 */
-export function cloneInto<T>(win: Window, value: T): T {
-  if (value === undefined) return value;
-  return (win as any).JSON.parse(JSON.stringify(value));
-}
-
-const BUFFER_KEY = '__wxa_array_buffer__';
-
-/**
- * 原生接口的结果和事件交给 iframe：同 cloneInto，另外把 ArrayBuffer（readFile 读到的文件、按 arraybuffer 请求到的数据、
- * WebSocket 的二进制消息）复制成目标 realm 的。
- * 只有原生接口会给出 ArrayBuffer；setData 等消息数据量大，仍走 cloneInto，省掉逐个字段的检查
- */
-function cloneNativeInto<T>(win: Window, value: T): T {
-  if (value === undefined) return value;
-  const buffers: ArrayBuffer[] = [];
-  const json = JSON.stringify(value, (_key, item) => {
-    if (Object.prototype.toString.call(item) !== '[object ArrayBuffer]') return item;
-    buffers.push(item);
-    return { [BUFFER_KEY]: buffers.length - 1 };
-  });
-  const targetJson: JSON = (win as any).JSON;
-  if (!buffers.length) return targetJson.parse(json);
-  return targetJson.parse(json, (_key, item) => (item?.[BUFFER_KEY] === undefined ? item : copyBuffer(win, buffers[item[BUFFER_KEY]])));
-}
-
-function copyBuffer(win: Window, source: ArrayBuffer): ArrayBuffer {
-  const copy: ArrayBuffer = new (win as any).ArrayBuffer(source.byteLength);
-  new Uint8Array(copy).set(new Uint8Array(source));
-  return copy;
 }
 
 /**

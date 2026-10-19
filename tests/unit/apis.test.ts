@@ -3,6 +3,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createFileSystemApis } from '../../packages/core/src/runtime/host/api/fs';
 import { createMiscApis } from '../../packages/core/src/runtime/host/api/misc';
 import { createNetworkApis } from '../../packages/core/src/runtime/host/api/network';
 import { ApiHandler, ApiRegistry, ApiResult } from '../../packages/core/src/runtime/host/api/registry';
@@ -266,8 +267,8 @@ describe('网络 API', () => {
   });
 });
 
-describe('其它 API', () => {
-  const apis = createMiscApis('wx1');
+describe('文件系统', () => {
+  const apis = createFileSystemApis();
 
   it('文件系统 API 与基础库的调用格式一致', () => {
     expect(call(apis, 'access', { path: 'http://usr/x' }).errMsg).toMatch(/^access:fail no such file/);
@@ -277,6 +278,10 @@ describe('其它 API', () => {
     expect(call(apis, 'stat', { path: 'http://usr/logs/1.log' }).stats).toMatchObject({ size: 5 });
     expect(call(apis, 'readdir', { dirPath: 'http://usr/logs' }).files).toEqual(['1.log']);
   });
+});
+
+describe('其它 API', () => {
+  const apis = createMiscApis('wx1');
 
   it('不校验业务域名：基础库不论从哪个原生接口拉业务域名列表都明确失败，拉别的照常成功', () => {
     expect(call(apis, 'operateWXData', { data: { api_name: 'webapi_getwxanetwork' } }).errMsg).toMatch(/^operateWXData:fail /);
@@ -316,7 +321,7 @@ describe('读取代码包里的文件', () => {
     };
     const fetchMock = vi.fn(async (url: string) => (files[url] ? new Response(files[url]) : new Response('', { status: 404 })));
     vi.stubGlobal('fetch', fetchMock);
-    return { apis: createMiscApis('wx1'), fetchMock };
+    return { apis: createFileSystemApis(), fetchMock };
   }
 
   it('readFile 不指定编码时得到 ArrayBuffer，指定 utf8 时得到文本，路径可以不以 / 开头', async () => {
@@ -341,6 +346,12 @@ describe('读取代码包里的文件', () => {
     call(apis, 'writeFile', { filePath: 'http://usr/a.txt', data: 'local' });
     expect(await call(apis, 'readFile', { filePath: 'http://usr/a.txt' })).toMatchObject({ data: 'local' });
     expect((await call(apis, 'readFile', { filePath: 'http://usr/assets/data.bin' })).errMsg).toMatch(/^readFile:fail no such file/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('readFileSync 同步返回，只读内存文件系统：代码包里的文件读不到，也不向开发服务器取', () => {
+    const { apis, fetchMock } = setup();
+    expect(call(apis, 'readFileSync', { filePath: 'assets/data.bin' }).errMsg).toMatch(/^readFileSync:fail no such file/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

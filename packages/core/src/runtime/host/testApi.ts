@@ -7,8 +7,8 @@ import type { RecordedRequest } from './api/network';
 import type { ApiHandler, ApiResult } from './api/registry';
 import { compilePattern } from './api/routes';
 import { decodeStorageValue } from './api/storage';
-import { cloneInto } from './Host';
 import type { FrameError, Host } from './Host';
+import { cloneInto } from './realm';
 import { TASK_APIS } from './setup';
 
 export type { RecordedRequest };

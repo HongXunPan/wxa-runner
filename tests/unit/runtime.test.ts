@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { MemoryFileSystem } from '../../packages/core/src/runtime/host/api/misc';
+import { MemoryFileSystem } from '../../packages/core/src/runtime/host/api/fs';
 import { ApiContext, ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
 import { createStorageApis, KeyValueStore, MiniProgramStorage } from '../../packages/core/src/runtime/host/api/storage';
 import { PageStack } from '../../packages/core/src/runtime/host/PageStack';

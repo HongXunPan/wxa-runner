@@ -58,4 +58,23 @@ describe.skipIf(!e2eReady)('业务代码拿到的值属于业务代码自己的�
     await frame.click('#select');
     await expectText(frame, '#items', '2 项');
   });
+
+  // 现有发给渲染层的原生事件（选择器、web-view）都不带二进制，用一个自定义事件验证，和发给逻辑层的事件一样
+  it('渲染层收到的原生事件里的二进制数据，是渲染层自己的 ArrayBuffer，字节不变', async () => {
+    const frame = await runner.open('/');
+    await frame.evaluate(() => {
+      (window as any).WeixinJSBridge.on('wxaBinaryEvent', (data: { buffer: ArrayBuffer }) => {
+        const bytes = Array.from(new Uint8Array(data.buffer)).join(',');
+        document.body.dataset.received = `${data.buffer instanceof ArrayBuffer} ${bytes}`;
+      });
+    });
+
+    await runner.page.evaluate(() => {
+      const { webviewId } = window.__wxa_test_api__.currentPage()!;
+      (window as any).__wxaHost.emitToWebview(webviewId, 'wxaBinaryEvent', { buffer: new Uint8Array([0, 0x80, 0xff]).buffer });
+    });
+
+    await frame.waitForFunction(() => document.body.dataset.received !== undefined);
+    expect(await frame.evaluate(() => document.body.dataset.received)).toBe('true 0,128,255');
+  });
 });

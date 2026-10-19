@@ -61,6 +61,8 @@ export default defineConfig({
           '微信小程序,小程序调试,小程序自动化测试,小程序 E2E 测试,Playwright,uni-app,Taro,基础库,小程序模拟器,wxa-runner'
       }
     ],
+    // Google Search Console 的站点验证
+    ['meta', { name: 'google-site-verification', content: 'Qg8RjNxDVZjF5N823_1M5gbWSYI5o2azEwxpXQeWt9Q' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: title }],
     ['meta', { property: 'og:locale', content: 'zh_CN' }],

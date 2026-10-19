@@ -344,6 +344,12 @@ describe('读取代码包里的文件', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('readFileSync 同步返回，只读内存文件系统：代码包里的文件读不到，也不向开发服务器取', () => {
+    const { apis, fetchMock } = setup();
+    expect(call(apis, 'readFileSync', { filePath: 'assets/data.bin' }).errMsg).toMatch(/^readFileSync:fail no such file/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('用户目录下有同名文件时，不带协议的路径仍读代码包里的文件', async () => {
     const { apis } = setup();
     call(apis, 'mkdir', { dirPath: 'http://usr/assets' });

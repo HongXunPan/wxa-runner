@@ -1,60 +1,47 @@
-# wxa-runner 项目设计文档
+# wxa-runner 设计文档
 
-> **设计理念**：站在微信官方与 WEPT 的肩膀上，构建一个现代化、极速、真实的小程序浏览器运行时。
+这份文档写给参与开发的人：wxa-runner 怎么在浏览器里运行官方基础库，各部分为什么这样设计。
+使用方法见[文档站点](https://open-wxa.github.io/wxa-runner/)，从源码构建、测试和发布见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-本文档描述的是**当前代码的实际设计**。和最初方案不同的地方，在对应章节中以「与最初方案的差异」注明。
+这里只讲整体结构和原因，实现细节以代码里的注释为准。
 
 ---
 
-## 📐 设计哲学
+## 设计原则
 
-### 1. 真实性优先（Authenticity First）
+### 复用官方实现，只做「原生层」
 
-**理念**：不重新发明轮子，最大化复用微信官方实现。
+- **官方基础库**：直接加载 `WAService.js` / `WAWebview.js`，App / Page / Component、exparser 组件系统、setData 与渲染全部由官方代码完成
+- **官方编译器**：调用 `wcc` / `wcsc`，编译结果与开发者工具一致
+- **官方协议**：宿主实现的是基础库期望的原生接口 `WeixinJSBridge`（`invoke` / `publish` / `subscribe` / `on`），以及 `onAppRoute` 等原生事件
 
-- ✅ **使用官方基础库**：运行时直接加载微信开发者工具下载的 `WAService.js` / `WAWebview.js`，App/Page/Component、exparser 组件系统、setData 与渲染全部由官方代码完成
-- ✅ **使用官方编译器**：调用开发者工具自带的 `wcc` / `wcsc`，编译结果与开发者工具一致
-- ✅ **使用官方协议**：宿主实现的是基础库期望的原生接口 `WeixinJSBridge`（`invoke` / `publish` / `subscribe` / `on`），以及 `onAppRoute` 等原生事件
+wxa-runner 只实现微信客户端原生部分在浏览器里的替代品：消息桥、页面栈、原生 API、导航栏 / tabBar / 弹窗等原生 UI。
+渲染层上报的平台是 `devtools`，基础库因此对大多数原生组件改用它为开发者工具准备的网页实现。
 
-**我们的角色**：「原生层」而不是「框架层」。wxa-runner 只实现微信客户端原生部分在浏览器里的替代品：
-消息桥、页面栈、原生 API、导航栏/tabBar/弹窗等原生 UI。
+### 调试友好
 
-**官方代码从哪里来**：基础库和编译器都从用户本机的微信开发者工具中读取，不随本项目分发
-（版权归腾讯）。见 [基础库与编译器的获取](#1-基础库与编译器的获取)。
+- 每个业务 JS 文件单独一个 `<script>`，行号与源文件一致；用 `import` / `export` 的文件经 esbuild 转换，附带 source map
+- 基础库脚本经 source map 加入 DevTools 的忽略列表，控制台的来源链接、调用栈和单步调试都落在业务代码上（`server/ignoreList.ts`）
+- 编译错误直接显示官方编译器给出的文件和行列号，修复后自动恢复
+- 改动样式、模板、页面逻辑时热更新，保留页面状态；其余改动整页刷新并恢复页面栈
+- `?path=pages/detail/detail&id=1` 直接打开指定页面
 
-### 2. 极速体验（Speed Obsession）
+### 快
 
-- ✅ **内存编译**：编译器输出直接读自子进程 stdout，不写临时文件（仅超长参数时写一个参数文件）
-- ✅ **并行编译**：渲染层 wxml、逻辑层 wxml、wxss 三次编译并行执行
-- ✅ **按类型增量**：只改了 JS 时不重新编译模板和样式；只改了 wxss 时不重新编译 wxml
-- ✅ **共享构建**：并发请求共享同一次构建，结果缓存到下次文件变化
+- 编译器输出直接读自子进程 stdout，不写临时文件（只有参数超长时写一个参数文件）
+- 渲染层 wxml、逻辑层 wxml、wxss 三次编译并行执行
+- 按类型增量：只改了 JS 时不重新编译模板和样式，只改了 wxss 时不重新编译 wxml
+- 并发请求共享同一次构建，结果缓存到下次文件变化
 
-**实测**（showcase 示例，M 系列 Mac）：完整编译 70ms 左右，单文件修改后重新编译 7–25ms，
-文件保存到浏览器刷新完成约 450ms。
+### 可测试
 
-> 与最初方案的差异：没有使用 Worker 线程池和 HTTP/2 Server Push。编译器以子进程运行，
-> 原因见 [编译器](#2-编译器wxa-runner-compiler)；本地开发场景下 HTTP/1.1 已经足够快。
+- 每个页面是一个同源 iframe，Playwright 能用标准选择器直接操作
+- setup 和测试 API 在小程序启动前预置存储、覆盖原生 API、拦截请求，不用改业务代码
+- `@open-wxa/wxa-runner-playwright` 把这些包装成 Playwright fixture
 
-### 3. 开发友好（Developer Experience）
+---
 
-- ✅ **零配置启动**：`wxa-runner dev ./dist/dev/mp-weixin`
-- ✅ **自动刷新**：chokidar 监听文件 → 增量编译 → WebSocket 通知浏览器刷新，**刷新后停留在当前页面和参数**
-- ✅ **编译错误可读**：直接显示官方编译器给出的文件和行列号，修复后自动恢复
-- ✅ **Chrome DevTools 调试**：每个 JS 文件单独一个 `<script>`，行号与源文件一致；ES Module 语法经 esbuild 转换后附带 source map；
-  基础库脚本通过 source map 加入 DevTools 的忽略列表，控制台的来源链接、调用栈和单步调试都落在业务代码上
-- ✅ **深链接**：`http://localhost:3000/?path=pages/detail/detail&id=1` 直接打开指定页面
-- ⏳ VSCode 插件：未开始
-
-> 与最初方案的差异：「热更新」实现为整页刷新 + 恢复当前路由，不保留页面内存状态。
-
-### 4. 测试至上（Test-Driven）
-
-- ✅ **Playwright 可直接操作**：每个页面是一个同源 iframe，元素可以用标准选择器查询
-- ✅ **无头模式**：已在 headless Chrome 下验证
-- ✅ **Mock 注入点**：`window.__wxa_test_api__.mock(api, impl)` 覆盖任意原生 API
-- ✅ **Playwright fixture**：`@open-wxa/wxa-runner-playwright` 每个 worker 启动开发服务器，读页面 data、断言请求、自动重试的断言
-
-### 5. 架构分层（Layered Architecture）
+## 架构
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -62,7 +49,7 @@
 │          playwright            Playwright fixture          │
 └───────────────┬──────────────────────────────────────────┘
 ┌───────────────┴──────────────────────────────────────────┐
-│ 服务层   core/server  DevServer、网络代理、WS               │
+│ 服务层   core/server  DevServer、网络代理、文件监听、热更新分流 │
 └──┬──────────────────────┬────────────────────────────────┘
 ┌──┴──────────────┐ ┌─────┴──────────────────────────────────┐
 │ 构建层           │ │ 浏览器运行时 core/runtime                │
@@ -72,30 +59,31 @@
 └─────────────────┘ └────────────────────────────────────────┘
 ```
 
-> 与最初方案的差异：没有引入依赖注入框架，模块之间通过构造参数传递依赖。
+模块之间通过构造参数传递依赖，没有依赖注入框架。
 
----
-
-## 🏗️ 项目结构
+## 项目结构
 
 ```
 wxa-runner/
 ├── packages/
 │   ├── extractor/                     # @open-wxa/wxa-runner-extractor：基础库定位与解包
 │   │   └── src/
-│   │       ├── wxvpkg.ts              # .wxvpkg 格式解析
 │   │       ├── devtools.ts            # 定位开发者工具安装目录 / 用户数据目录
-│   │       └── baselib.ts             # 版本列表、兼容性判断、解包到 ~/.wxa-runner/baselib
+│   │       ├── baselib.ts             # 版本列表、兼容性判断、选择来源（开发者工具 / 内置）、解包到 ~/.wxa-runner/baselib
+│   │       ├── wxvpkg.ts              # .wxvpkg 格式解析
+│   │       └── asar.ts                # 从新版开发者工具的 app.asar 里读文件
 │   │
 │   ├── compiler/                      # @open-wxa/wxa-runner-compiler：官方编译器封装
 │   │   └── src/
-│   │       ├── locate.ts              # 定位 wcc / wcsc 可执行文件
+│   │       ├── locate.ts              # 定位 wcc / wcsc：开发者工具自带的，没有时用 miniprogram-compiler
 │   │       ├── wcc.ts                 # WXML/WXS → $gwx（渲染层完整版 / 逻辑层裁剪版）
 │   │       ├── wcsc.ts                # WXSS → setCssToHead 代码，解析 key=value 输出
 │   │       └── exec.ts
 │   │
 │   ├── core/                          # @open-wxa/wxa-runner-core
 │   │   └── src/
+│   │       ├── setup.ts               # setup 文件的类型和 defineSetup（@open-wxa/wxa-runner-core/setup）
+│   │       ├── test-api.ts            # window.__wxa_test_api__ 的全局类型声明
 │   │       ├── project/
 │   │       │   ├── MiniProgram.ts     # 读取 app.json / 页面与组件 json、收集组件、列文件
 │   │       │   ├── AppBuilder.ts      # 生成逻辑层 / 渲染层产物，按类型增量
@@ -105,19 +93,27 @@ wxa-runner/
 │   │       │   ├── watcher.ts         # 文件监听：合并一次保存的改动，内容没变的不算
 │   │       │   ├── hmr.ts             # 改动能否热更新
 │   │       │   ├── html.ts            # 宿主 / 逻辑层 / 渲染层 HTML
+│   │       │   ├── ignoreList.ts      # 基础库脚本加入 DevTools 忽略列表的 source map
 │   │       │   ├── proxy.ts           # wx.request 等的转发代理
+│   │       │   ├── setup.ts           # 查找、打包 setup 文件，收集 WXA_ 环境变量
 │   │       │   ├── realLogin.ts       # --real-login 的真实登录接口
-│   │       │   ├── developerTicket.ts # 真实登录的 ticket：新版开发者工具经自动化接口实时获取
-│   │       │   └── setup.ts           # 编译 setup 文件
+│   │       │   └── developerTicket.ts # 真实登录的 ticket：新版开发者工具经自动化接口实时获取
 │   │       └── runtime/               # 浏览器端（打包为 dist/runtime/host.js、frame.js）
 │   │           ├── frame.ts           # 注入 iframe：全局变量、WeixinJSBridge、设备尺寸、触摸模拟
-│   │           ├── context.ts         # 新版基础库：模拟原生 WeixinJSContext，在逻辑层里创建子上下文
+│   │           ├── context.ts         # 3.7.1 起的基础库：模拟原生 WeixinJSContext，在逻辑层里创建子上下文
+│   │           ├── sdkStubs.ts        # 伴生 SDK（广告等）的占位
+│   │           ├── syncScript.ts      # 同步执行脚本（loadLibFiles）
 │   │           └── host/
+│   │               ├── index.ts       # 宿主入口：读取构建信息、执行 setup、启动、处理热更新和整页刷新
 │   │               ├── Host.ts        # 宿主：消息分发、路由、页面栈
 │   │               ├── PageStack.ts   # 页面栈（纯逻辑）
 │   │               ├── PageView.ts    # 单个渲染层 iframe
+│   │               ├── realm.ts       # 跨 iframe 传值时在目标 realm 里重建
+│   │               ├── hmr.ts         # 在浏览器里应用热更新
+│   │               ├── pageStackRestore.ts  # 整页刷新前后保留页面栈
+│   │               ├── setup.ts       # 执行 setup
 │   │               ├── testApi.ts     # window.__wxa_test_api__（每个成员的说明写在 WxaTestApi 的注释里）
-│   │               ├── api/           # 原生 API：storage / system / network / ui / media / picker / webView / fs / misc + 注册表
+│   │               ├── api/           # 原生 API，见下文「原生 API」
 │   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器、图片预览、文件选择框
 │   │
 │   ├── cli/bin/wxa-runner.js          # wxa-runner：命令行（npm 包名不带 scope，npx wxa-runner 直接可用）
@@ -130,11 +126,8 @@ wxa-runner/
 │           ├── request.ts             # 按 Content-Type 解析请求体
 │           └── server.ts              # 开发服务器参数，路径相对 Playwright 配置文件
 │
-├── examples/
-│   ├── showcase/                      # 覆盖主要功能的示例（组件、wxs、路由、tabBar、API）
-│   ├── hello-world/
-│   └── tabbar/
-│
+├── docs/                              # 使用文档，同时是 VitePress 文档站点
+├── examples/                          # showcase（覆盖主要功能）、hello-world、tabbar
 └── tests/
     ├── unit/                          # 解包、编译、项目解析、构建、文件监听、运行时纯逻辑、原生 API
     ├── integration/                   # DevServer 路由、网络代理
@@ -142,47 +135,50 @@ wxa-runner/
     └── playwright/                    # 用 Playwright fixture 写的用例（pnpm test:playwright）
 ```
 
-> 与最初方案的差异：`vendor/` 目录不再存在，基础库在运行时从开发者工具解包到用户目录。
-
 ---
 
-## 🧩 核心模块设计
+## 基础库与编译器
 
-### 1. 基础库与编译器的获取
+### 来源
 
-| 资源 | 位置（macOS） | 说明 |
+| 资源 | 来源 | 说明 |
 | --- | --- | --- |
-| 基础库 | `~/Library/Application Support/微信开发者工具/<id>/WeappVendor/<版本>.wxvpkg` | 开发者工具按需下载的各版本基础库 |
-| 编译器 | `/Applications/wechatwebdevtools.app/Contents/Resources/<程序目录>/node_modules/wcc-exec/{wcc,wcsc}` | 命令行版本，x86_64 + arm64 通用二进制 |
-| 行政区划数据 | `<程序目录>/js/libs/region_sub_strict*`，新版在 `app.asar` 里 | 地区选择器用，见「原生组件」 |
+| 基础库 | 开发者工具下载的 `.wxvpkg`，macOS 上在 `~/Library/Application Support/微信开发者工具/<id>/WeappVendor/<版本>.wxvpkg` | 用时解包到 `~/.wxa-runner/baselib/<版本>/` 并缓存 |
+| | 内置基础库 `@open-wxa/wxa-baselib`（3.7.0，已解包） | 给没有开发者工具的机器（Linux、CI）用，见[设计权衡](#为什么内置基础库放在单独的仓库) |
+| 编译器 | 开发者工具自带的命令行版本：`<程序目录>/node_modules/wcc-exec/{wcc,wcsc}` | macOS 上是 x86_64 + arm64 通用二进制 |
+| | 微信官方 npm 包 `miniprogram-compiler` 自带的编译器 | 没有开发者工具时用，只支持 x86-64。编译内核较旧（20200413，开发者工具为 20211229），页面的编译结果相同，只有模板运行时有少量差异，如单页最多 16000 个节点 |
+| 行政区划数据 | `<程序目录>/js/libs/region_sub_strict*`，新版在 `app.asar` 里 | 地区选择器用，见「原生组件」。没有开发者工具时地区选择器不可用 |
 
-程序目录：旧版开发者工具是 `package.nw`；新版（2.02 起，Electron）把大部分文件打包在 `app.asar`，编译器等要直接执行的文件解包在
-`app.asar.unpacked`。两种都支持，行政区划数据直接从 `app.asar` 里读出（读法见 `wxa-runner-extractor` 的 `asar.ts`）。
+- 同一个基础库版本优先用开发者工具的，内置的只在开发者工具没有这个版本时兜底
+- 内置基础库和 `miniprogram-compiler` 都是可选依赖：安装失败不影响 wxa-runner 本身
+- 程序目录：旧版开发者工具是 `package.nw`；新版（2.02 起，Electron）把大部分文件打包在 `app.asar`，编译器等要直接执行的文件解包在
+  `app.asar.unpacked`。两种都支持，行政区划数据直接从 `app.asar` 里读出（`extractor/src/asar.ts`）
+- 以上位置都可以用环境变量覆盖：`WXA_DEVTOOLS_PATH`、`WXA_VENDOR_DIR`、`WXA_WCC` / `WXA_WCSC`
 
 `.wxvpkg` 是一个简单的打包格式：`0xBE` 魔数 + 文件索引（名称、偏移、长度，大端序）+ 文件内容。
-`wxa-runner-extractor` 解析它，把选定的版本解包到 `~/.wxa-runner/baselib/<版本>/` 并缓存。
-以上位置均可通过环境变量覆盖：`WXA_DEVTOOLS_PATH`、`WXA_VENDOR_DIR`、`WXA_WCC` / `WXA_WCSC`。
 
-**默认使用的基础库版本：≤ 3.7.0**（`MAX_COMPATIBLE_VERSION`，已验证的范围）。不指定版本时，自动选择本机已安装的最新兼容版本；
+### 版本
+
+**默认使用的基础库版本：≤ 3.7.0**（`MAX_COMPATIBLE_VERSION`，已验证的范围）。不指定版本时，自动选择可用的最新兼容版本；
 更高的版本用 `--baselib` 或 `WXA_BASELIB` 指定，启动时提示超出已验证的范围。
 
 | 版本 | 逻辑层结构 | 状态 |
 | --- | --- | --- |
-| 2.x – 3.7.0 | `WAService.js` 包含完整框架，在单个 JS 上下文中运行 | ✅ 已验证 2.32.3 / 3.3.4 / 3.5.8 / 3.7.0 |
-| 3.7.1 起 | 业务代码运行在由原生 `WeixinJSContext` 创建的隔离上下文中（glass-easel 适配） | 🧪 全部测试在 3.7.1 / 3.8.8 上通过，需显式指定版本 |
+| 2.x – 3.7.0 | `WAService.js` 包含完整框架，在单个 JS 上下文中运行 | 已验证 2.32.3 / 3.3.4 / 3.5.8 / 3.7.0 |
+| 3.7.1 起 | 业务代码运行在由原生 `WeixinJSContext` 创建的隔离上下文中（glass-easel 适配） | 全部测试在 3.7.1 / 3.8.8 上通过，需显式指定版本 |
 | 3.8 起 | `WAService.js` 只是占位，框架在 `WAServiceMainContext.js` / `WASubContext.js` | 同上 |
 
 3.7.1 起（`ISOLATED_CONTEXT_SINCE`），逻辑层 iframe 加载 `WAServiceMainContext.js`，作为主上下文；
-`runtime/context.ts` 在其中提供 `WeixinJSContext`，主上下文用它创建子上下文（逻辑层里的同源 iframe，加载 `WASubContext.js`），
+`runtime/context.ts` 在其中提供 `WeixinJSContext`，主上下文用它创建子上下文（逻辑层里的同源 iframe `subcontext.html`，加载 `WASubContext.js`），
 业务代码在名为 `app` 的子上下文里执行。主、子上下文之间的消息由基础库直接互相调用，不经过 wxa-runner。
 业务代码的启动要经过几步基础库内部行为，任何一步没发生时，超时后报告停在哪一步，小程序照常结束启动。
 原生接口的约定由模拟基础库（`tests/fakeBaseLib.ts`）固定，CI 上没有新版基础库也能测到。
 
-### 2. 编译器（wxa-runner-compiler）
+### 编译器（wxa-runner-compiler）
 
 **为什么用子进程而不是 `wcc.node` 原生模块**：原生模块在同一 Node 进程中重复调用会随机触发
-`std::bad_alloc` 崩溃（与调用顺序、GC 无关，可稳定复现）。命令行版本与原生模块是同一个编译内核
-（`v0.5vv_20211229_syb_scopedata`），单次编译约 6ms，子进程天然隔离。
+`std::bad_alloc` 崩溃（与调用顺序、GC 无关，可稳定复现）。命令行版本与原生模块是同一个编译内核，
+单次编译只需几毫秒，子进程天然隔离。
 
 **WXML（wcc）**：项目中所有 `.wxml` 和 `.wxs` 一次编译成一个 `$gwx` 函数，`import` / `include` /
 wxs 引用由编译器自己解析。需要告诉编译器每个页面/组件中哪些标签是自定义组件（`-cc` / `-xc` 参数），
@@ -201,9 +197,11 @@ wxs 引用由编译器自己解析。需要告诉编译器每个页面/组件中
 - `comm`：公共运行时（`setCssToHead`、rpx 换算）以及 `app.wxss` 的立即执行代码
 - `./pages/a/a.wxss`：每个页面/组件一个 `setCssToHead(...)`，返回的函数在页面创建时调用
 
-rpx 换算由 wcsc 生成的运行时完成，不需要我们处理（最初实现中服务端的正则替换已删除）。
+rpx 换算由 wcsc 生成的运行时完成，不需要另外处理。
 
-### 3. 项目构建（core/project）
+---
+
+## 项目构建（core/project）
 
 **json 预处理**（与开发者工具相同）：
 - `app.json` 的全局 `usingComponents` 展开到每个页面和组件（`miniprogram_npm` 和独立分包除外）
@@ -246,14 +244,20 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 }));
 ```
 
-### 4. 浏览器运行时（core/runtime）
+逻辑层的模板（`service-templates.js`）、渲染层的模板（`page-templates.js`）和样式（`page-styles.js`）也能单独取到，热更新时分别下发。
+样式和模板里的 `env(safe-area-inset-*)` 改写成 CSS 变量（`rewriteSafeAreaInsets`）。
 
-#### iframe 布局
+---
+
+## 浏览器运行时（core/runtime）
+
+### iframe 布局
 
 ```
 宿主页面 /                         host.js：Host、页面栈、原生 API、手机外壳 UI
-├── iframe /__wxa__/appservice.html          逻辑层（隐藏）
+├── iframe /__wxa__/appservice.html          逻辑层（隐藏，name 为 wxa-appservice）
 │     frame.js → WAService.js → 业务模块 → service-bootstrap.js
+│     （3.7.1 起：WAServiceMainContext.js，业务代码在子上下文 subcontext.html 里执行）
 ├── iframe /__wxa__/webview/pages/a/a.html?id=1   渲染层（每个页面一个）
 │     frame.js → WAWebview.js → page-frame.js → generateFuncReady
 └── iframe /__wxa__/webview/pages/b/b.html?id=2
@@ -261,13 +265,13 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 
 渲染层 URL 与页面路径一致，wxml 中的相对资源路径（`../../images/a.png`）因此能按小程序规则解析。
 
-#### 注入 iframe 的脚本（frame.ts）
+### 注入 iframe 的脚本（frame.ts）
 
 必须在基础库之前执行：
 
 1. **预置全局变量**：`__wxAppCode__`、`__wxRoute`、`WeixinWorker`、`__global` 等，基础库依赖它们
-2. **`__passWAServiceGlobal__(globals)`**：基础库初始化完成后通过它交出 `App` / `Page` / `Component` /
-   `wx` / `define` / `require`，没有这个函数这些全局对象不会出现
+2. **`__passWAServiceGlobal__(globals)`**：部分版本的基础库初始化完成后通过它交出 `App` / `Page` / `Component` /
+   `wx` / `define` / `require`（3.7.0 直接写到 `globalThis`）
 3. **WeixinJSBridge**：基础库检测到已存在的全局 `WeixinJSBridge` 时直接使用它
 4. **渲染层设备模拟**：
    - `screen.width` / `devicePixelRatio` 改为模拟设备的值
@@ -280,7 +284,7 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
    推迟到 `window.onload` 注入。开发者工具在文档加载完后才注入基础库，那边是立即注入；这里基础库随页面同步加载，
    首屏渲染早于 onload，canvas 这类挂载时测量尺寸的组件会量错。所以加载完成前赋给 `window.onload` 的回调改为立即执行
 
-#### 消息协议
+### 消息协议
 
 宿主与 iframe 同源，iframe 内的桥直接调用 `window.parent.__wxaHost`，不经过 postMessage。
 这让同步 API（`getStorageSync` 等）可以同步返回。
@@ -293,16 +297,12 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 | 原生 → 逻辑层 | `WeixinJSBridge.on(event, cb)` | `onAppRoute`、`onAppRouteDone`、`on*TaskStateChange`、`onAppEnterForeground` 等 |
 | 原生 → 渲染层 | `WeixinJSBridge.on(event, cb)` | 原生组件的事件：`onMultiPickerViewChange`、`onWebviewStartLoad` / `onWebviewFinishLoad` |
 
-数据通过 `目标window.JSON.parse(JSON.stringify(data))` 在目标 iframe 的 realm 中重建，
+数据通过 `目标window.JSON.parse(JSON.stringify(data))` 在目标 iframe 的 realm 中重建（`host/realm.ts`），
 避免跨 realm 的 `instanceof Array` 判断失效。原生接口的结果和事件里可能有 ArrayBuffer（`readFile` 读到的文件、下载的音频、
 按 `arraybuffer` 请求到的数据、WebSocket 的二进制消息），
 JSON 会把它变成 `{}`，所以单独复制成目标 realm 的 ArrayBuffer；`setData` 等消息数据量大，不做这一步。
 
-> 与最初方案的差异：最初设计中的命令字 `APPSERVICE_PUBLISH` / `WEBVIEW_PUBLISH` / `APPSERVICE_INVOKE` /
-> `APPSERVICE_ON_EVENT` 是开发者工具内部 postMessage 的消息名；基础库本身面对的是上表中的 WeixinJSBridge 接口，
-> 宿主直接实现这一层即可。
-
-#### 路由与生命周期
+### 路由与生命周期
 
 宿主不实现任何生命周期，只维护页面栈并派发 `onAppRoute`，生命周期由基础库驱动：
 
@@ -320,42 +320,44 @@ navigateTo(url)
 - 路由操作串行执行，避免连续跳转时页面栈错乱
 - tabBar 页面实例缓存，`switchTab` 回来时不重新创建；`reLaunch` 清空包括 tabBar 在内的所有页面
 
-#### 原生 API
+### 原生 API
 
 | 模块 | 内容 |
 | --- | --- |
 | storage | localStorage，按 appid 和 storageId 隔离；原样保存基础库序列化后的数据和 dataType；渲染层用的 GlobalStorage（cookie） |
 | system | 以模拟设备（默认 iPhone X，375×812 @3x）为准的 getSystemInfo 及 windowInfo / deviceInfo / appBaseInfo 等 |
-| network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理。`success` 的 data 按 `responseType` 是文本或 ArrayBuffer，被拦截的请求也一样；WebSocket 的二进制消息是 ArrayBuffer。基础库把业务传的 ArrayBuffer（请求体、WebSocket 消息）原样交给宿主，不经 `__nativeBuffers__` |
+| network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理。`success` 的 data 按 `responseType` 是文本或 ArrayBuffer，被拦截的请求也一样；WebSocket 的二进制消息是 ArrayBuffer。基础库把业务传的 ArrayBuffer（请求体、WebSocket 消息）原样交给宿主，不经 `__nativeBuffers__`。每个 `wx.request` 都记录下来，供测试 API 的 `requests()` 读取 |
+| routes | 请求拦截规则：setup 的 `network.routes` 和测试 API 的 `route` 共用，在浏览器里匹配，命中的请求不发往代理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
 | media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
+| map | map 组件要的定位（`private_geolocation`）和 `moveToMapLocation`，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
 | webView | web-view 组件的网页视图，见下文「原生组件」 |
 | fs | 内存文件系统（基础库会往 `http://usr/` 写运行日志）；`readFile` 读不带协议的路径时向开发服务器取代码包里的文件，`readFileSync` 只读内存文件系统 |
-| savedFiles | 保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
+| tempFiles / savedFiles | 临时文件存到开发服务器；保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
 | libFiles | 渲染层按需加载基础库文件（`loadLibFilesSync`），3.3.x、3.5.x 的 video 等组件用，见下文「原生组件」 |
-| misc | 临时文件、登录等开放接口的模拟数据、剪贴板 |
+| misc | 登录、用户信息等开放接口的固定返回（`--real-login` 时登录和手机号换成真实的）、剪贴板等 |
 | 路由 | 由 Host 实现 |
 
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。
 其中业务代码调用的（逻辑层发起、名字在 `wx` 上）还会记入测试 API 的 `errors()`，每个 API 一次；
 基础库内部调用的原生接口（如 `getAppContact`）不记，因为业务既没调用也 mock 不了。
-测试中可以用 `__wxa_test_api__.mock()` 覆盖任意 API。
+setup 和测试 API 的 `mock` 都在注册表这一层覆盖原生实现。
 
-#### 原生组件
+### 原生组件
 
 渲染层上报的平台是 `devtools`，基础库对大多数原生组件改用开发者工具里的网页实现，宿主不用参与：
 
 | 组件 | 实现 | 状态 |
 | --- | --- | --- |
-| canvas（2d / webgl / 旧版 canvas-id）、video、map、camera、audio | 基础库的网页实现：`<canvas>`、`<video>`、腾讯地图网页 SDK、`getUserMedia` | ✅ map 需要联网；camera 需要浏览器授权摄像头；video 的 src 只能是 http(s)，3.3.x、3.5.x 的 video 按需加载（见下） |
-| cover-view、cover-image、input、textarea、picker-view、editor | 基础库的网页实现 | ✅ |
-| picker | 宿主弹出选择器（`showPickerView` 等） | ✅ |
-| web-view | 宿主在页面里嵌入 iframe（`insertHTMLWebView` 等） | ✅ 有限制，见下 |
-| live-player | 渲染出 `<video>`，播放走的 `operateLivePlayer` 没有实现，浏览器也不能播 RTMP | ⏳ |
-| live-pusher、voip-room | 基础库显示「IDE 暂不支持」，与开发者工具一致 | — |
-| open-data、ad | open-data 渲染为空；ad 走广告失败分支（见伴生 SDK 子包） | — |
+| canvas（2d / webgl / 旧版 canvas-id）、video、map、camera、audio | 基础库的网页实现：`<canvas>`、`<video>`、腾讯地图网页 SDK、`getUserMedia` | 可用。map 需要联网；camera 需要浏览器授权摄像头；video 的 src 只能是 http(s)，3.3.x、3.5.x 的 video 按需加载（见下） |
+| cover-view、cover-image、input、textarea、picker-view、editor | 基础库的网页实现 | 可用 |
+| picker | 宿主弹出选择器（`showPickerView` 等） | 可用 |
+| web-view | 宿主在页面里嵌入 iframe（`insertHTMLWebView` 等） | 可用，有限制，见下 |
+| live-player | 渲染出 `<video>`，播放走的 `operateLivePlayer` 没有实现，浏览器也不能播 RTMP | 不能播放 |
+| live-pusher、voip-room | 基础库显示「IDE 暂不支持」，与开发者工具一致 | 不支持 |
+| open-data、ad | open-data 渲染为空；ad 走广告失败分支（见「伴生 SDK 子包」） | 不支持 |
 
 几个需要宿主配合的地方：
 
@@ -406,7 +408,7 @@ navigateTo(url)
   记录随之失效，`getSavedFileInfo` 报文件不存在，Painter 等用它做缓存的库会重新下载。FileSystemManager 的 `saveFile`
   指定 `filePath` 时直接失败：那是内存文件系统，存不了图片等二进制内容；`saveFileSync` 没有实现
 
-#### 伴生 SDK 子包
+### 伴生 SDK 子包
 
 上面的兜底只覆盖走 `WeixinJSBridge.invoke` 的调用。另有一类能力实现在基础库内部，
 由一组伴生文件提供，真机和开发者工具由原生层调用 `loadMainContextLibFile` 把它们
@@ -436,21 +438,94 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 不给 `SkylineGlobal` / `NativeGlobal` / `xrFrame` / `WeixinJSContext` 这类全局打桩——
 基础库对它们做 `typeof` 检测，补上会让它走进依赖更多的分支，比缺失更糟。
 
-### 5. 服务层（core/server）
+---
+
+## 热更新
+
+文件变化后，能热更新的改动不刷新宿主、保留页面状态；其余改动整页刷新，恢复整个页面栈。
+
+**分流**（`server/hmr.ts`）：一次改动里只有样式（所有 `.wxss`），以及页面、组件自己的 `.wxml` / `.js` 时热更新；
+只要有一个其他文件（`app.js`、`.json`、普通模块、被引用的模板和 wxs、新增或删除的文件）就整页刷新。
+文件监听（`server/watcher.ts`）把一次保存引起的变化合并成一批，内容没变的文件不算：uni-app 等框架的监听构建每次保存都会重写全部产物。
+
+**应用**（`runtime/host/hmr.ts`）：
+
+- 样式：在每个渲染层里原地替换，页面栈里不在前台的页面也一起更新
+- 模板和逻辑借助基础库为开发者工具准备的接口 `__virtualDOM__.updateWxAppCode`（只在监听文件变化时开启，见 `server/html.ts`）：
+  - 模板：按模板路径更新，基础库用实例当前的 data 重新渲染
+  - `Page()` 构造的页面：不走基础库按 `.js` 路径的更新——那会重新挂载页面（onUnload → onLoad），data 回到初始值。
+    这里把新方法换到活着的页面实例上，再重新注册 Page，之后新打开的页面用新代码
+  - `Component()` 构造的页面和组件（uni-app 的页面也是）：状态常在框架自己的实例里（如 Vue 的 setup），
+    换方法保不住，交给基础库按 `.js` 路径重新挂载这些实例；页面栈、globalData、其他页面不受影响
+- 应用失败（如新代码执行出错）时退回整页刷新
+
+**整页刷新保留页面栈**（`runtime/host/pageStackRestore.ts`）：wxa-runner 触发的整页刷新前记下每一页的路径和参数，启动后依次重新打开。
+开发者手动刷新不经过这里，只按地址栏恢复当前页——手动刷新通常就是想从头来过。
+
+`--no-watch`（如跑测试）时不监听文件、不开启热更新接口，运行环境与真机一致。
+
+---
+
+## setup 与测试 API
+
+**setup 文件**（`server/setup.ts`、`runtime/host/setup.ts`）：
+
+- 用 esbuild 把 setup 文件连同它 import 的文件打成一个浏览器 ES 模块。对 `@open-wxa/wxa-runner-core/setup` 的引用换成运行时自带的实现，
+  小程序项目里不用安装本包
+- 只把 `WXA_` 开头的环境变量交给 setup：setup 在浏览器里执行，其余环境变量可能是不该外泄的密钥
+- 在逻辑层创建之前执行，顺序固定为 storage → mock → network → run。必须早于小程序启动：基础库会把读过的存储缓存在内存里，
+  启动后再写入，`wx.getStorageSync` 读不到新值
+- 配置写错或执行出错时模拟器显示错误，小程序不启动
+
+**测试 API**（`runtime/host/testApi.ts`）：宿主启动时把 `window.__wxa_test_api__` 挂到宿主页面上，读取页面栈和 data、覆盖原生 API、拦截和记录请求、直接跳转。
+`App.onLaunch` 里就调用的 API 等 `ready` 之后再 mock 已经晚了，所以宿主在 setup 之后、小程序启动前调用测试工具定义的 `window.__wxa_before_launch__`。
+
+宿主启动的顺序：读取构建信息 → 安装测试 API → 执行 setup → 执行 `__wxa_before_launch__` → 启动小程序 → 恢复页面栈 → `ready` resolve。
+
+**说明的来源**：测试 API 和 fixture 的说明只写在类型注释里（`WxaTestApi`、`MiniProgram`；fixture 转发的成员经映射类型复用 core 的注释）。
+单元测试检查每个成员都有注释，以及测试 API 的每个成员都写进了 `docs/test-api.md` 的表格（`tests/unit/testApiDocs.test.ts`）。
+
+## Playwright fixture
+
+`@open-wxa/wxa-runner-playwright` 解决的是只用 Playwright 自带的 `webServer` 加测试 API 表达不了的问题：
+
+- **服务器生命周期**：多个 worker 并行时，端口和服务器要自己管。fixture 每个 worker 启动一个 DevServer（随机端口，不监听文件），
+  每个用例一个新的浏览器上下文
+- **版本一致**：浏览器里的运行时和测试代码引用的类型可能不是同一个版本。core 作为 fixture 的普通依赖，由 fixture 启动服务器
+- **自动重试**：`page.evaluate` 只读一次，跳转后要手动 `waitForPage`。`toHavePath` / `toHavePageData` 反复读取直到满足或超时
+- **请求断言**：`network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体。宿主在匹配之前记录每个 `wx.request`，
+  `requests()` / `waitForRequest()` 读取
+- **打开页面前声明**：mock / unmock / route / unroute 按调用顺序记在 Node 侧，每次页面加载时在 `__wxa_before_launch__` 里重放。
+  打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后状态不变
+- **Node 侧的处理函数**：函数形式的 mock / route 留在 Node 里执行，浏览器经 `page.exposeFunction` 的通道按编号调用。
+  只能异步返回结果，所以基础库同步调用的 API 只能 mock 成对象。这个通道的返回值传到浏览器时，Buffer 等二进制会变成普通对象，
+  所以 route 的二进制响应体先转成 base64、到浏览器里再还原；反过来浏览器传给 Node 的 ArrayBuffer 会变成 `{}`
+  （`page.evaluate` 的返回值也是），小程序发出的二进制请求体包成 Uint8Array 传过去再换回
+- **错误不被吞掉**：处理函数抛错时，浏览器里只是一次失败的调用，写在里面的断言会被忽略。fixture 记下这些错误，用例结束时抛出；
+  再检查 `errors()` 为空（`wxaCheckErrors`）。整页重新加载前先取出当前页面上的错误，不会丢
+
+---
+
+## 服务层（core/server）
 
 | 路由 | 内容 |
 | --- | --- |
 | `/` | 宿主页面 |
-| `/__wxa__/app-info.json` | 构建信息；构建失败时返回 `buildError`，宿主显示错误 |
+| `/__wxa__/app-info.json` | 构建信息（`__wxConfig`、页面列表、设备参数、setup）；构建失败时返回 `buildError`，宿主显示错误 |
+| `/__wxa__/setup.js` | 打包后的 setup 文件 |
+| `/__wxa__/runtime/*` | 浏览器运行时（`host.js`、`frame.js`） |
 | `/__wxa__/appservice.html?path=&query=` | 逻辑层；`path` 写入 `appLaunchInfo` |
+| `/__wxa__/subcontext.html?id=` | 3.7.1 起逻辑层里的子上下文 |
 | `/__wxa__/webview/<page>.html?id=` | 渲染层 |
 | `/__wxa__/module/<file>.js` | 单个业务模块 |
 | `/__wxa__/service-bootstrap.js`、`/__wxa__/page-frame.js` | 构建产物 |
-| `/__baselib__/*` | 解包后的基础库 |
+| `/__wxa__/service-templates.js`、`page-templates.js`、`page-styles.js` | 两层的模板和渲染层的样式，热更新时重新下发 |
+| `/__baselib__/*` | 基础库；`*.js.map` 是把它加入 DevTools 忽略列表的 source map |
 | `/__wxa__/proxy?url=` | 网络代理 |
-| `/__wxa__/tmp` | 临时文件：`POST ?type=png` 保存，返回可直接访问的地址；随服务器进程存在 |
+| `/__wxa__/tmp` | 临时文件：`POST ?type=png` 保存，返回可直接访问的地址；对该地址 `HEAD` 查大小、`DELETE` 删除；随服务器进程存在 |
 | `/__wxa__/region/<districts\|streets>` | 地区选择器用的行政区划数据，取自本机开发者工具 |
-| `/__wxa__/ws` | 文件变化 / 编译错误通知 |
+| `/__wxa__/api/*` | 真实登录（`--real-login`）：`wx.login` 的 code、手机号，只允许本机访问 |
+| `/__wxa__/ws` | 文件变化通知：热更新（`hot`）、整页刷新（`reload`）、编译错误（`error`） |
 | 其他 | 小程序目录下的静态资源 |
 
 **网络代理**：小程序设置的请求头放在 `x-wxa-headers`（JSON）里传给代理，cookie、referer 等浏览器
@@ -460,20 +535,21 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 
 ---
 
-## 🔄 数据流
+## 数据流
 
 ### 启动
 
 ```
-1. 浏览器打开 /，host.js 读取 /__wxa__/app-info.json
-2. 创建逻辑层 iframe：frame.js 准备全局变量和桥 → WAService.js 初始化
-   → __passWAServiceGlobal__ 交出 App/Page/define/require
-   → 加载业务模块（define）→ service-bootstrap.js 注册 json/wxml，require app.js、组件、页面
+1. 浏览器打开 /，host.js 读取 /__wxa__/app-info.json（构建失败时显示编译错误）
+2. 安装测试 API，执行 setup 和 __wxa_before_launch__
+3. 创建逻辑层 iframe：frame.js 准备全局变量和桥 → WAService.js 初始化，交出 App / Page / define / require
+   → 加载业务模块（define）→ service-bootstrap.js 注册 json / wxml，require app.js、组件、页面
    → App.onLaunch / onShow
-3. 宿主创建首页渲染层 iframe：WAWebview.js → page-frame.js → generateFuncReady
-4. 宿主派发 onAppRoute(openType: appLaunch)
-5. 基础库执行 Page.onLoad / onShow，通过 publish 把初始数据发给渲染层
-6. 渲染层 exparser 创建节点树；逻辑层收到渲染完成后执行 onReady
+4. 宿主创建首页渲染层 iframe：WAWebview.js → page-frame.js → generateFuncReady
+5. 宿主派发 onAppRoute(openType: appLaunch)
+6. 基础库执行 Page.onLoad / onShow，通过 publish 把初始数据发给渲染层
+7. 渲染层 exparser 创建节点树；逻辑层收到渲染完成后执行 onReady
+8. wxa-runner 触发的整页刷新之后，依次重新打开刷新前的页面栈；完成后测试 API 的 ready resolve
 ```
 
 ### 用户点击
@@ -488,14 +564,16 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 ### 文件变化
 
 ```
-chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
-→ 成功：WebSocket 通知 reload，浏览器刷新后按地址栏的 ?path= 回到当前页面
-→ 失败：WebSocket 推送编译器错误，宿主覆盖显示；修复后自动恢复
+chokidar → 合并一次保存引起的变化，跳过内容没变的文件
+→ 按文件类型增量编译
+→ 编译失败：推送 error，宿主覆盖显示编译器的错误；修复后自动恢复
+→ 能热更新：推送 hot，宿主取回新的模板 / 样式 / 模块并应用，保留页面状态
+→ 不能热更新、或者热更新失败：推送 reload，整页刷新后恢复整个页面栈
 ```
 
 ---
 
-## 🎨 技术选型
+## 技术选型
 
 | 维度 | 选择 | 理由 |
 | --- | --- | --- |
@@ -504,115 +582,30 @@ chokidar → 按文件类型标记需要重新编译的部分 → 增量编译
 | HTTP 服务器 | Express | 简单、中间件成熟 |
 | WebSocket | ws | 轻量 |
 | 文件监听 | chokidar | 跨平台 |
-| ESM 转换 | esbuild | 快，带 source map |
+| ESM 转换、setup 打包 | esbuild | 快，带 source map |
 | 构建 | tsup | Node 端 cjs + esm；浏览器端 iife |
 | 测试 | Vitest + Playwright | 单元、集成、真实浏览器 e2e |
 
 ---
 
-## 🚀 实施路线图
+## 设计权衡
 
-### Phase 1：MVP ✅
+### 为什么不直接使用微信开发者工具？
 
-- [x] 项目结构搭建
-- [x] 提取官方基础库（从本机开发者工具解包 `.wxvpkg`，按版本缓存）
-- [x] 封装 wcc / wcsc 编译器（命令行版本，支持自定义组件配置）
-- [x] 宿主容器（Host + 手机外壳 UI）
-- [x] 消息桥接（WeixinJSBridge：invoke / publish / subscribe / on）
-- [x] 路由栈管理
-- [x] Storage 适配器
-- [x] Hello World 示例
+开发者工具是桌面应用（旧版基于 NW.js，新版基于 Electron），只有 Windows 和 macOS 版本，难以在 CI 和无头浏览器中使用，
+也无法被 Playwright 直接驱动。wxa-runner 只复用其中的核心运行时（基础库 + 编译器），抛弃桌面壳。
 
-**验收**：`wxa-runner dev examples/hello-world`，点击按钮触发 setData 更新 —— 已通过。
-
-### Phase 2：完善核心功能 ✅（附已知限制）
-
-- [x] Network 适配器（request / downloadFile / uploadFile / connectSocket，经代理转发）
-- [x] UI 适配器（toast / loading / modal / actionSheet / 导航栏）
-- [x] 热更新（自动重新编译并刷新，保留当前页面路由；不保留页面内存状态）
-- [x] tabBar
-- [x] 自定义组件（含 npm 组件、全局组件、抽象节点）
-- [x] wxs
-- [x] 单元测试：语句覆盖率 90%、分支 83%（统计范围不含只在浏览器中运行的代码，这部分由 e2e 覆盖）
-- [x] 集成测试与 e2e 测试
-
-**验收**：
-- 真实 uni-app（Vue 3）编译产物可运行：unibest（14 个组件）、uni-preset-vue-vite
-- 页面跳转、tabBar、网络请求（真实 API）、Storage 持久化、修改代码后自动刷新 —— 均已通过
-- 2.32.3 / 3.3.4 / 3.5.8 / 3.7.0 四个基础库版本跑通同一套 e2e 场景
-
-**已知限制**（后续工作）：
-- live-player、live-pusher、voip-room、open-data 等原生组件（canvas、video、map、camera、picker、web-view 已支持，见「原生组件」）；蓝牙等设备能力
-- 插件、分包异步化、Worker
-- 页面内存状态保持的热更新
-
-### Phase 3：Playwright 集成 ✅
-
-- [x] Mock 注入 API（`__wxa_test_api__.mock`）
-- [x] 当前页标记：`iframe[data-current]` 始终指向当前页，跨跳转可直接用 `page.frameLocator`
-- [x] `window.__wxa_test_api__` 的全局类型声明（`@open-wxa/wxa-runner-core/test-api`）
-- [x] 测试最佳实践文档（[docs/testing.md](./docs/testing.md)）
-- [x] `@open-wxa/wxa-runner-playwright`（[#4](https://github.com/open-wxa/wxa-runner/issues/4)）
-
-起初认为服务器生命周期交给 Playwright 自带的 `webServer`、错误检查写一行 `afterEach` 就够，暂缓了单独发包。
-实际使用中出现了文档和配置表达不了的需求，于是做成 fixture：
-
-- 多个 worker 并行时，端口和服务器生命周期要自己管：fixture 每个 worker 启动一个 DevServer（随机端口）
-- 浏览器里的运行时和测试代码引用的类型可能不是同一个版本：core 作为 fixture 的普通依赖，由 fixture 启动服务器
-- `page.evaluate` 只读一次，跳转后要手动 `waitForPage`：`toHavePath` / `toHavePageData` 自动重试
-- `network.routes` 在浏览器里匹配，命中的请求不经过代理，Playwright 拿不到请求体：宿主在匹配之前记录每个
-  `wx.request`，`requests()` / `waitForRequest()` 读取
-- Node 侧执行的 mock / route 处理函数：经 `page.exposeFunction` 的通道调用。只能异步返回结果，所以同步 API 只能 mock 成对象。
-  这个通道的返回值传到浏览器时，Buffer 等二进制会变成普通对象，所以 route 的二进制响应体先转成 base64、到浏览器里再还原；
-  反过来浏览器传给 Node 的 ArrayBuffer 会变成 `{}`（`page.evaluate` 的返回值也是），小程序发出的二进制请求体包成 Uint8Array 传过去再换回
-- 启动阶段就调用的 API：宿主在 setup 之后、启动前执行 `window.__wxa_before_launch__`，fixture 在这里按顺序重放
-  Node 侧记下的 mock / unmock / route / unroute，打开页面前声明的在 `App.onLaunch` 里就生效，整页重新加载后状态不变
-
-说明只写在类型注释里：`WxaTestApi` 和 `MiniProgram` 的每个成员都有注释（fixture 转发的成员经映射类型复用 core 的注释），
-单元测试检查每个成员都有注释、测试 API 的每个成员都写进了 docs/testing.md 的表格。
-
-还没做的：按 WXML 标签名和组件样式隔离前缀选择元素。
-
-### Phase 4：生产优化（预计 2 周）
-
-- [x] 支持 3.7.1+ 基础库（模拟 WeixinJSContext 隔离上下文，[#9](https://github.com/open-wxa/wxa-runner/issues/9)）；默认仍选 ≤ 3.7.0
-- [x] 原生组件：canvas、picker、web-view、临时文件（live-player 等见 Phase 2 已知限制）
-- [ ] 多实例并行、Docker 部署
-- [ ] 性能与压力测试
-
-### Phase 5：社区建设（持续）
-
----
-
-## 📝 开发规范
-
-- 使用 ESLint + Prettier 统一代码风格
-- 关键逻辑必须有测试；浏览器端行为用 e2e 覆盖
-- Commit 遵循 [Conventional Commits](https://www.conventionalcommits.org/)
-
----
-
-## 🤔 设计权衡
-
-### 1. 为什么不直接使用微信开发者工具？
-
-开发者工具基于 NW.js，依赖桌面环境，难以在 CI 和无头浏览器中使用，也无法被 Playwright 直接驱动。
-我们只复用其中的核心运行时（基础库 + 编译器），抛弃桌面壳。
-
-### 2. 为什么使用 iframe 而不是 Web Worker？
+### 为什么使用 iframe 而不是 Web Worker？
 
 渲染层需要 DOM；逻辑层的基础库也假设运行在有 `window` / `document` 的环境中（开发者工具里同样是网页）。
 同源 iframe 还让同步 API 可以直接同步调用宿主。
 
-### 3. 为什么不重新实现基础库？
+### 为什么不重新实现基础库？
 
-工作量巨大且难以保证一致。实践也证明了这一点：本项目最初的实现自己模拟了 App/Page 和渲染，
+工作量巨大且难以保证一致。本项目最初的实现自己模拟了 App / Page 和渲染，
 无法支持 setData 之外的大部分能力；换成官方基础库后，组件、wxs、事件系统都直接可用。
 
-### 4. 为什么基础库和编译器不随项目分发？
+### 为什么内置基础库放在单独的仓库？
 
-它们的版权属于腾讯。从用户本机已安装的开发者工具中读取，既避免分发问题，也让用户可以自由切换版本。
-
----
-
-**版本**：v1.2（2026-10-14，补充原生组件）
+基础库是微信官方代码，版权归腾讯，不适用本项目的 MIT 协议，所以和本项目的代码分开，放在 [wxa-baselib](https://github.com/open-wxa/wxa-baselib) 仓库，
+作为可选依赖从 GitHub 安装。安装失败不影响 wxa-runner 本身；有开发者工具的机器优先用开发者工具下载的版本，也能自由切换版本。

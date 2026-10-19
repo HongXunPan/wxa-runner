@@ -117,7 +117,7 @@ wxa-runner/
 │   │               ├── PageStack.ts   # 页面栈（纯逻辑）
 │   │               ├── PageView.ts    # 单个渲染层 iframe
 │   │               ├── testApi.ts     # window.__wxa_test_api__（每个成员的说明写在 WxaTestApi 的注释里）
-│   │               ├── api/           # 原生 API：storage / system / network / ui / media / picker / webView / misc + 注册表
+│   │               ├── api/           # 原生 API：storage / system / network / ui / media / picker / webView / fs / misc + 注册表
 │   │               └── ui/            # 手机外壳：状态栏、导航栏、tabBar、toast、modal、actionSheet、选择器、图片预览、文件选择框
 │   │
 │   ├── cli/bin/wxa-runner.js          # wxa-runner：命令行（npm 包名不带 scope，npx wxa-runner 直接可用）
@@ -332,9 +332,10 @@ navigateTo(url)
 | audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
 | webView | web-view 组件的网页视图，见下文「原生组件」 |
+| fs | 内存文件系统（基础库会往 `http://usr/` 写运行日志）；`readFile` 读不带协议的路径时向开发服务器取代码包里的文件，`readFileSync` 只读内存文件系统 |
 | savedFiles | 保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
 | libFiles | 渲染层按需加载基础库文件（`loadLibFilesSync`），3.3.x、3.5.x 的 video 等组件用，见下文「原生组件」 |
-| misc | 内存文件系统（基础库会往 `http://usr/` 写运行日志；`readFile` 读代码包里的文件时向开发服务器取）、临时文件、登录等开放接口的模拟数据、剪贴板 |
+| misc | 临时文件、登录等开放接口的模拟数据、剪贴板 |
 | 路由 | 由 Host 实现 |
 
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。

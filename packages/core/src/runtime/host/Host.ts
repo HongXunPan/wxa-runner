@@ -8,6 +8,7 @@
 import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createAudioApis } from './api/audio';
+import { createFileSystemApis } from './api/fs';
 import { createLibFileApis } from './api/libFiles';
 import { createMapApis, MapOperations } from './api/map';
 import { createMediaApis } from './api/media';
@@ -445,6 +446,7 @@ export class Host implements HostApi {
       switchTab: routeApi(args => this.switchTab(args.url)),
       ...createStorageApis(this.storage),
       ...createSavedFileApis(this.storage),
+      ...createFileSystemApis(),
       ...createSystemApis({
         device: this.device,
         baseLibVersion: this.info.baseLibVersion,

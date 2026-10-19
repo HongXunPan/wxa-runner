@@ -63,7 +63,7 @@ export default defineSetup(({ env }) => ({
 }));
 ```
 
-For a real login code or phone number, start with `--real-login`. See [docs/setup.md](./docs/setup.md) (in Chinese).
+For a real login code or phone number, start with `--real-login`. See [docs/real-login.md](./docs/real-login.md) (in Chinese).
 
 ### Hot reload
 
@@ -93,7 +93,7 @@ test('navigates to the result page after submitting', async ({ miniProgram }) =>
 });
 ```
 
-See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking and request interception, and using the test API without the fixture.
+See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking and request interception, and [docs/test-api.md](./docs/test-api.md) for using the test API without the fixture.
 
 ## Features
 
@@ -113,7 +113,7 @@ CI covers only the bundled 3.7.0; the other versions are checked locally with `W
 ## Known limitations
 
 - Base library 3.7.1 and later is never picked automatically: choose it with `--baselib` or `WXA_BASELIB`, and a warning says it is outside the verified range. The bundled base library is 3.7.0 only, so download newer versions in WeChat DevTools first
-- Unimplemented native APIs return success; tests can catch them through `errors()` (see [docs/testing.md](./docs/testing.md#注意事项))
+- Unimplemented native APIs return success; tests can catch them through `errors()` (see [docs/testing.md](./docs/testing.md#检查运行时错误))
 - No Bluetooth or other device capabilities; `chooseMedia` can't pick videos
 - A few `MapContext` methods of the map component, such as `toScreenLocation`, `fromScreenLocation` and ground overlays, are missing from the base library's web implementation and never call back (see [PROJECT_DESIGN.md](./PROJECT_DESIGN.md#原生组件))
 - No plugins, async subpackages or Workers ([#10](https://github.com/open-wxa/wxa-runner/issues/10))

@@ -2,6 +2,17 @@
   "name": "@open-wxa/wxa-runner-playwright",
   "version": "0.3.2",
   "description": "Playwright fixture for wxa-runner: starts the dev server per worker, reads page data and asserts mini-program requests",
+  "keywords": [
+    "wechat",
+    "miniprogram",
+    "mini-program",
+    "weapp",
+    "playwright",
+    "fixture",
+    "e2e",
+    "testing",
+    "uni-app"
+  ],
   "license": "MIT",
   "author": "open-wxa",
   "repository": {
@@ -9,7 +20,7 @@
     "url": "git+https://github.com/open-wxa/wxa-runner.git",
     "directory": "packages/playwright"
   },
-  "homepage": "https://github.com/open-wxa/wxa-runner#readme",
+  "homepage": "https://open-wxa.github.io/wxa-runner/",
   "bugs": {
     "url": "https://github.com/open-wxa/wxa-runner/issues"
   },

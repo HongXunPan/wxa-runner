@@ -4,6 +4,7 @@ node_modules/
 
 # Build outputs
 dist/
+docs/.vitepress/cache/
 build/
 *.tsbuildinfo
 
@@ -40,3 +41,5 @@ temp/
 
 # Local tooling
 .claude/
+
+docs/research/

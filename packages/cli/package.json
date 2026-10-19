@@ -5,10 +5,15 @@
   "keywords": [
     "wechat",
     "miniprogram",
+    "mini-program",
     "weapp",
     "runtime",
+    "simulator",
     "e2e",
-    "testing"
+    "testing",
+    "playwright",
+    "uni-app",
+    "taro"
   ],
   "license": "MIT",
   "author": "open-wxa",
@@ -17,7 +22,7 @@
     "url": "git+https://github.com/open-wxa/wxa-runner.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/open-wxa/wxa-runner#readme",
+  "homepage": "https://open-wxa.github.io/wxa-runner/",
   "bugs": {
     "url": "https://github.com/open-wxa/wxa-runner/issues"
   },

@@ -6,9 +6,9 @@
 [`@open-wxa/wxa-runner-playwright`](https://www.npmjs.com/package/@open-wxa/wxa-runner-playwright)。以下情况把它加为开发依赖：
 
 - setup 文件要类型提示：`import { defineSetup } from '@open-wxa/wxa-runner-core/setup'`，见
-  [docs/setup.md](https://github.com/open-wxa/wxa-runner/blob/main/docs/setup.md)
+  [启动前准备（setup）](https://open-wxa.github.io/wxa-runner/setup)
 - 不用 fixture、直接使用测试 API：`/// <reference types="@open-wxa/wxa-runner-core/test-api" />` 为
-  `window.__wxa_test_api__` 提供类型，见 [docs/testing.md](https://github.com/open-wxa/wxa-runner/blob/main/docs/testing.md#直接使用测试-api)
+  `window.__wxa_test_api__` 提供类型，见 [测试 API](https://open-wxa.github.io/wxa-runner/test-api)
 - 在 Node 里启动开发服务器：
 
 ```ts

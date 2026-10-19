@@ -15,7 +15,10 @@
     "format": "prettier --write .",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "prepare": "husky"
+    "prepare": "husky",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "wechat",
@@ -45,6 +48,8 @@
     "prettier": "^3.1.0",
     "tsup": "^8.0.1",
     "typescript": "^5.3.2",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-llms": "^1.14.0",
     "vitest": "^1.0.4",
     "ws": "^8.22.0"
   },
@@ -56,7 +61,7 @@
     "type": "git",
     "url": "git+https://github.com/open-wxa/wxa-runner.git"
   },
-  "homepage": "https://github.com/open-wxa/wxa-runner#readme",
+  "homepage": "https://open-wxa.github.io/wxa-runner/",
   "bugs": {
     "url": "https://github.com/open-wxa/wxa-runner/issues"
   }

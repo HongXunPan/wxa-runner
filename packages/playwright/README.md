@@ -40,7 +40,7 @@ test('提交订单后跳转到结果页', async ({ miniProgram }) => {
 - 用例结束时检查运行时错误和未实现的 wx API，`wxaCheckErrors: false` 可以关掉
 - 每个 worker 一个开发服务器，每个用例一个新的浏览器上下文，并行运行互不影响
 
-配置项、mock 的限制等见 [在 Playwright 中测试](https://github.com/open-wxa/wxa-runner/blob/main/docs/testing.md)。
+配置项、mock 的限制等见 [在 Playwright 中测试](https://open-wxa.github.io/wxa-runner/testing)。
 
 ## 不用 fixture
 
@@ -60,4 +60,4 @@ export default defineConfig({
 });
 ```
 
-写法见 [直接使用测试 API](https://github.com/open-wxa/wxa-runner/blob/main/docs/testing.md#直接使用测试-api)。
+写法见 [测试 API](https://open-wxa.github.io/wxa-runner/test-api)。

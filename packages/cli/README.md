@@ -18,8 +18,7 @@ npx wxa-runner dev ./dist/dev/mp-weixin   # 原生小程序目录，或 uni-app 
 | `wxa-runner baselib list` | 列出可用的基础库及兼容性 |
 | `wxa-runner baselib extract [版本]` | 解包基础库（`dev` 会自动执行） |
 
-命令选项和环境变量见 [docs/cli.md](https://github.com/open-wxa/wxa-runner/blob/main/docs/cli.md)；
-跳过登录、热更新、在 Playwright 中测试见 [项目主页](https://github.com/open-wxa/wxa-runner#readme)。
+命令选项和环境变量、跳过登录、热更新、在 Playwright 中测试等用法见[文档](https://open-wxa.github.io/wxa-runner/)。
 
 ## 许可证
 

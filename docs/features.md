@@ -1,0 +1,54 @@
+---
+description: wxa-runner 和微信开发者工具的区别，支持的项目类型、组件和 API，已验证的基础库版本，以及插件、蓝牙、分包异步化等已知限制。
+---
+
+# 功能与限制
+
+## 和微信开发者工具的区别
+
+wxa-runner 用的是和开发者工具同一套官方基础库，渲染、组件、生命周期的行为一致。区别在运行的地方和用途：
+
+| | wxa-runner | 微信开发者工具 |
+| --- | --- | --- |
+| 运行在 | 普通的 Chrome，可以无头运行 | 开发者工具的模拟器 |
+| 调试 | Chrome DevTools | 开发者工具的调试器 |
+| 自动化测试 | Playwright 直接操作页面，Linux、CI 上也能跑 | 要远程控制开发者工具，只能在 Windows、macOS 上运行 |
+| 需要安装开发者工具 | 不需要，没装时用内置的基础库和编译器 | — |
+| 预览、上传、真机调试 | 不支持 | 支持 |
+| 插件、Worker、分包异步化 | 不支持 | 支持 |
+
+适合本地开发调试、跑自动化测试；发布相关的事情仍然在开发者工具里做。
+
+## 支持的项目
+
+| 项目 | 说明 |
+| --- | --- |
+| 原生小程序 | 直接运行 `project.config.json` 所在目录 |
+| uni-app | 运行编译产物目录（如 `dist/dev/mp-weixin`），已在 Vue 3 的真实项目上验证 |
+| Taro 等其他框架 | 运行编译产物目录。编译产物是标准的小程序代码，目前在真实项目上验证过的只有 uni-app |
+
+## 支持的能力
+
+| 能力 | 支持 |
+| --- | --- |
+| 渲染 | WXML、WXSS、WXS、自定义组件，App / Page / Component 生命周期 |
+| 路由 | navigateTo、redirectTo 等页面路由，10 层页面栈，tabBar |
+| 界面 | 导航栏、tabBar、toast / modal / actionSheet，默认模拟 iPhone X |
+| 组件 | picker、canvas、camera、video、map（需要联网）、web-view |
+| 媒体 | chooseImage、chooseMedia（只能选图片）由浏览器选文件，previewImage、getImageInfo，保存到相册即下载；InnerAudioContext 播放音频 |
+| 网络 | request、上传、下载由开发服务器转发（没有跨域限制），WebSocket |
+| 存储 | Storage、FileSystemManager 基本操作 |
+| 登录、用户信息等开放接口 | 返回固定的假数据，支付、扫码默认失败，[默认返回什么](./setup.md#mock)。可以用 setup mock，或用[真实登录](./real-login.md)拿真实的 code |
+
+基础库已验证 2.32.3、3.3.4、3.5.8、3.7.0；3.7.1 和 3.8.8 上全部测试也通过，但默认不会选用，见下文。
+
+## 已知限制
+
+- **基础库版本**：3.7.1 起的基础库不会自动选用，要用 `--baselib` 或 `WXA_BASELIB` 指定，启动时提示超出已验证的范围。
+  内置基础库只有 3.7.0，更新的版本要先在开发者工具里下载
+- **未实现的 API**：还没有实现的原生 API 调用后返回成功，以免打断业务代码。测试里会被发现，见[检查运行时错误](./testing.md#检查运行时错误)
+- **设备能力**：不支持蓝牙等设备能力；`chooseMedia` 不能选视频
+- **地图**：MapContext 的 toScreenLocation、fromScreenLocation、地面覆盖物等方法在基础库的网页实现里没有，调用后不会回调
+  （详见[设计文档](https://github.com/open-wxa/wxa-runner/blob/main/PROJECT_DESIGN.md#原生组件)）
+- **小程序能力**：不支持插件、分包异步化、Worker（[#10](https://github.com/open-wxa/wxa-runner/issues/10)）
+- **没有开发者工具时**（如 Linux、CI）：只支持 x86-64；编译器版本较旧，模板运行时有少量差异（如单页最多 16000 个节点）；地区选择器不可用

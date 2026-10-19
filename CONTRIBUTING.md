@@ -13,6 +13,7 @@ packages/
   playwright/  @open-wxa/wxa-runner-playwright Playwright fixture
 examples/      showcase（覆盖主要功能）、hello-world、tabbar
 tests/         unit / integration / e2e，playwright（用 fixture 写的用例）
+docs/          使用文档，同时是 VitePress 文档站点的源文件
 ```
 
 ## 构建与测试
@@ -39,6 +40,22 @@ node packages/cli/bin/wxa-runner.js dev examples/showcase --open   # 用源码�
 测试前先确认编译器、基础库和 Chrome 都找得到：缺少时依赖它们的用例会自动跳过，CI 却显示通过。
 最后用 `node scripts/release.mjs --dry-run` 打包全部 npm 包，像外部用户一样在新目录里用 npm 安装，确认
 `wxa-runner dev` 能启动示例项目、用上内置基础库和 miniprogram-compiler。
+
+## 文档站点
+
+`docs/` 下的 Markdown 在 GitHub 上直接阅读，同时用 [VitePress](https://vitepress.dev/zh/) 构建成文档站点：
+
+```bash
+pnpm docs:dev      # 本地预览，改动实时生效
+pnpm docs:build    # 构建到 docs/.vitepress/dist，有死链时失败
+pnpm docs:preview  # 预览构建结果
+```
+
+- 导航、侧边栏、站点地址在 `docs/.vitepress/config.mts`。新增页面要加进 `sidebar`，并在开头的 frontmatter 里写
+  `description`（搜索结果里显示的摘要，也是 `llms.txt` 里这一页的说明）
+- 页面之间用相对路径链接（`./setup.md#network`），GitHub 上和站点里都能打开。指向 `docs/` 之外的文件要写 GitHub 上的完整地址
+  （`https://github.com/open-wxa/wxa-runner/blob/main/…`）：站点里没有这些文件，给 AI 读的 `.md` 版本也是照原文生成的
+- [.github/workflows/docs.yml](./.github/workflows/docs.yml) 在 `docs/` 有改动并推送到 main 时部署到 GitHub Pages；PR 里只构建
 
 ## 提交与分支
 

@@ -39,6 +39,10 @@ if (kind === 'service') {
     $gwx: undefined
   });
   g.__WeixinWorker = g.WeixinWorker;
+  // 真机的逻辑层没有 DOM。按全局对象上有没有 MutationObserver 判断是否在浏览器里的库（如 core-js 2 的微任务 polyfill）
+  // 看到它就去用 document，而业务代码里的 document 被模块包装屏蔽了（见 AppBuilder 的 MODULE_PARAMS），app.js 执行出错
+  delete g.MutationObserver;
+  delete g.WebKitMutationObserver;
   // 基础库初始化完成后通过它交出 App/Page/Component/wx/define/require 等全局对象
   g.__passWAServiceGlobal__ = (globals: Record<string, unknown>) => {
     for (const key of Object.keys(globals)) {

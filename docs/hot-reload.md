@@ -1,3 +1,7 @@
+---
+description: wxa-runner 的热更新：修改 WXSS、WXML 和页面、组件的 JS 后不刷新页面，data、页面栈和 globalData 尽量保留；其他改动整页刷新并恢复页面栈。
+---
+
 # 热更新
 
 保存文件后不刷新整个模拟器，已有的状态（`data`、页面栈、`globalData`）尽量保留。

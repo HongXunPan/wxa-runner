@@ -1,0 +1,5 @@
+/* 表格第一列是命令、选项、字段名，不在中间折行 */
+.vp-doc th,
+.vp-doc td:first-child code {
+  white-space: nowrap;
+}

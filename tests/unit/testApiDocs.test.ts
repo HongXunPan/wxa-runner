@@ -1,5 +1,5 @@
 /**
- * 测试 API 和 Playwright fixture 的说明：类型注释是唯一的说明来源，docs/testing.md 的表格不能漏写成员
+ * 测试 API 和 Playwright fixture 的说明：类型注释是唯一的说明来源，docs/test-api.md 的表格不能漏写成员
  */
 
 import fs from 'fs';
@@ -24,11 +24,11 @@ function testApiMembers(): string[] {
   }
 }
 
-/** docs/testing.md「测试 API」一节表格里列出的成员 */
+/** docs/test-api.md「成员」一节表格里列出的成员 */
 function documentedMembers(): Set<string> {
-  const doc = fs.readFileSync(path.join(REPO_ROOT, 'docs/testing.md'), 'utf8');
-  const section = doc.split(/^## /m).find(part => part.startsWith('测试 API\n'));
-  if (!section) throw new Error('docs/testing.md 里找不到「## 测试 API」一节');
+  const doc = fs.readFileSync(path.join(REPO_ROOT, 'docs/test-api.md'), 'utf8');
+  const section = doc.split(/^## /m).find(part => part.startsWith('成员\n'));
+  if (!section) throw new Error('docs/test-api.md 里找不到「## 成员」一节');
   const rows = section.split('\n').filter(line => line.startsWith('|'));
   return new Set(rows.flatMap(row => [...row.matchAll(/`(\w+)/g)].map(match => match[1])));
 }
@@ -51,7 +51,7 @@ function undocumentedMembers(program: ts.Program, file: string, typeName: string
 }
 
 describe('测试 API 的说明', () => {
-  it('测试 API 的每个成员都写在 docs/testing.md 的表格里', () => {
+  it('测试 API 的每个成员都写在 docs/test-api.md 的表格里', () => {
     const documented = documentedMembers();
     expect(testApiMembers().filter(member => !documented.has(member))).toEqual([]);
   });

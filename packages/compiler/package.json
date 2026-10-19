@@ -9,7 +9,7 @@
     "url": "git+https://github.com/open-wxa/wxa-runner.git",
     "directory": "packages/compiler"
   },
-  "homepage": "https://github.com/open-wxa/wxa-runner#readme",
+  "homepage": "https://open-wxa.github.io/wxa-runner/",
   "bugs": {
     "url": "https://github.com/open-wxa/wxa-runner/issues"
   },

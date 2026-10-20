@@ -1,40 +1,63 @@
+/**
+ * 端到端：分包预下载和分包异步化，运行 examples/subpackages
+ *
+ * 基础库通过原生的 createLoadSubPackageTask、injectSubPackages 加载分包，调用方式因版本而异，
+ * 本机有哪个已验证版本就测哪个。
+ */
+
+import path from 'path';
+import { Frame } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { subpackageFiles } from '../fixtures/subpackages';
-import { e2eReady, Runner, startRunner } from './runner';
+import { EXAMPLES } from '../helpers';
+import { e2eReady, expectText, installedBaseLibs, Runner, startRunner, VERIFIED_BASELIBS } from './runner';
 
-describe.skipIf(!e2eReady)('普通分包的本地就绪语义', () => {
-  let runner: Runner;
-  const current = () => runner.page.frameLocator('iframe[data-current]');
-  const waitText = (selector: string, text: string) => current().locator(selector).filter({ hasText: text }).waitFor();
+describe.skipIf(!e2eReady)('分包预下载和分包异步化', () => {
+  for (const version of VERIFIED_BASELIBS) {
+    describe.skipIf(!installedBaseLibs.has(version))(`基础库 ${version}`, () => {
+      let runner: Runner;
+      const logs: string[] = [];
 
-  beforeAll(async () => { runner = await startRunner(subpackageFiles); });
-  afterAll(() => runner?.close());
+      const currentFrame = async (): Promise<Frame> => {
+        const { frameName } = (await runner.page.evaluate(() => window.__wxa_test_api__.currentPage()))!;
+        return runner.page.frame({ name: frameName })!;
+      };
 
-  it('预加载与原生任务能完成，进度、完成通知和分包资源正常', async () => {
-    await runner.open('/');
-    await waitText('#load-result', '协议加载：成功');
-    await waitText('#progress', '进度：100');
-    await waitText('#resource-result', '资源：成功');
-    expect(await current().locator('#success-count').innerText()).toBe('成功次数：1');
-    expect(await current().locator('#complete-count').innerText()).toBe('完成次数：1');
+      beforeAll(async () => {
+        runner = await startRunner(path.join(EXAMPLES, 'subpackages'), { baseLibVersion: version });
+        runner.page.on('console', message => logs.push(message.text()));
+      });
 
-    await current().locator('#again').click();
-    await waitText('#complete-count', '完成次数：2');
-    expect(await current().locator('#success-count').innerText()).toBe('成功次数：2');
-    await current().locator('#unknown').click();
-    await waitText('#unknown-result', '未知包：明确失败且已完成');
-  });
+      afterAll(async () => {
+        await runner?.close();
+      });
 
-  it('基础库原有 require.async 能引用已预注册模块，分包页面可以往返', async () => {
-    await runner.open('/');
-    await current().locator('#async').click();
-    await waitText('#async-result', '模块：异步模块已就绪');
-    await current().locator('#detail').click();
-    await runner.page.evaluate(() => window.__wxa_test_api__.waitForPage('pkg/detail/index'));
-    expect(await current().getByText('分包页面已渲染').isVisible()).toBe(true);
-    await current().locator('#back').click();
-    await runner.page.evaluate(() => window.__wxa_test_api__.waitForPage('pages/index/index'));
-    await waitText('#async-result', '模块：异步模块已就绪');
-    expect(await runner.page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([]);
-  });
+      it('打开首页后按 preloadRule 预下载分包', async () => {
+        const preloaded = runner.page.waitForEvent('console', {
+          predicate: message => message.text() === 'preloadSubpackages: success',
+          timeout: 10000
+        });
+        await runner.open('/');
+        await preloaded;
+      });
+
+      it('主包用 require.async 引用分包的 JS', async () => {
+        const frame = await runner.open('/');
+        await frame.click('#load-price');
+        await expectText(frame, '#price', '¥19.99');
+      });
+
+      it('分包页面里另一个分包的组件替换掉占位组件，require 回调拿到另一个分包的 JS', async () => {
+        logs.length = 0;
+        await (await runner.open('/')).click('#to-list');
+        await runner.page.evaluate(() => window.__wxa_test_api__.waitForPage('packageA/pages/list/list'));
+        const frame = await currentFrame();
+
+        await expectText(frame, '#card', '保温杯（packageB 的组件）');
+        await expectText(frame, '#badge', '新品');
+        await expectText(frame, '#price', '到手价 ¥59.00');
+        expect(logs.filter(log => log.includes('尚未实现'))).toEqual([]);
+        expect(await runner.page.evaluate(() => window.__wxa_test_api__.errors())).toEqual([]);
+      });
+    });
+  }
 });

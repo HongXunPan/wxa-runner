@@ -1,0 +1,9 @@
+<view class="section">
+  <view class="title">跨分包组件：packageB 加载完之前显示占位组件</view>
+  <goods-card id="card" title="保温杯" />
+  <badge id="badge" />
+</view>
+<view class="section">
+  <view class="title">用 require 回调引用另一个分包的 JS</view>
+  <view id="price">{{price}}</view>
+</view>

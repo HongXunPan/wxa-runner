@@ -75,4 +75,11 @@ describe('已预注册分包的原生加载任务', () => {
     vi.runAllTimers();
     expect(emit).toHaveBeenCalledTimes(2);
   });
+
+  it('渲染层注入分包时直接成功：模板和样式已在 page-frame.js 中', () => {
+    const { apis, emit } = setup();
+    expect(call(apis, 'injectSubPackages', { subPackages: ['/assets/hot/'] }).errMsg).toBe('injectSubPackages:ok');
+    vi.runAllTimers();
+    expect(emit).not.toHaveBeenCalled();
+  });
 });

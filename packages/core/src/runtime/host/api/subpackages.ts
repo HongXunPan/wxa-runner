@@ -1,5 +1,5 @@
 /**
- * 普通分包的本地就绪协议。
+ * 分包加载的本地就绪协议：分包预下载（preloadRule）和分包异步化（跨分包组件、require.async）都走这里。
  *
  * AppBuilder 已预注册所有分包模块，静态资源也由开发服务器直接提供，因此这里不下载文件，
  * 只按基础库协议交回任务 ID，再异步通知进度与完成。未知包明确失败，不假装加载成功。
@@ -43,7 +43,9 @@ export function createSubpackageApis(options: SubpackageApiOptions): Record<stri
   return {
     createLoadSubPackageTask,
     // 事件已由桥接广播，具体监听与回调由基础库管理，无需另建一套订阅状态。
-    listenLoadSubPackageTaskStateChange: (_args, { api }) => ok(api)
+    listenLoadSubPackageTaskStateChange: (_args, { api }) => ok(api),
+    // 分包加载完成后渲染层请求注入分包的模板和样式，它们已经打进 page-frame.js，回调后基础库替换占位组件。
+    injectSubPackages: (_args, { api }) => ok(api)
   };
 }
 

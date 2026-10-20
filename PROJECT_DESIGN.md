@@ -337,6 +337,7 @@ navigateTo(url)
 | fs | 内存文件系统（基础库会往 `http://usr/` 写运行日志）；`readFile` 读不带协议的路径时向开发服务器取代码包里的文件，`readFileSync` 只读内存文件系统 |
 | tempFiles / savedFiles | 临时文件存到开发服务器；保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
 | libFiles | 渲染层按需加载基础库文件（`loadLibFilesSync`），3.3.x、3.5.x 的 video 等组件用，见下文「原生组件」 |
+| subpackages | 分包加载任务：`createLoadSubPackageTask` 同步返回 taskId，随后通过 `onLoadSubPackageTaskStateChange` 推送 `progressUpdate`、`success`，未声明的分包失败。所有分包的代码构建时已经注册，不用下载；渲染层的 `injectSubPackages` 直接成功，模板和样式已在 page-frame.js 里。分包预下载和分包异步化（跨分包组件、`require.async`）都走这里 |
 | misc | 登录、用户信息等开放接口的固定返回（`--real-login` 时登录和手机号换成真实的）、剪贴板等 |
 | 路由 | 由 Host 实现 |
 

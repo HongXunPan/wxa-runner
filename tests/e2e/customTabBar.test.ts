@@ -1,5 +1,6 @@
+import path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { customTabBarFiles } from '../fixtures/customTabBar';
+import { EXAMPLES } from '../helpers';
 import { e2eReady, Runner, startRunner } from './runner';
 
 describe.skipIf(!e2eReady)('官方基础库自定义 tabBar', () => {
@@ -7,7 +8,11 @@ describe.skipIf(!e2eReady)('官方基础库自定义 tabBar', () => {
   const current = () => runner.page.frameLocator('iframe[data-current]');
   const waitForPage = (path: string) => runner.page.evaluate(p => window.__wxa_test_api__.waitForPage(p), path);
 
-  beforeAll(async () => { runner = await startRunner(customTabBarFiles); });
+  beforeAll(async () => {
+    runner = await startRunner(path.join(EXAMPLES, 'custom-tabbar'));
+    // 自动化环境默认 1:1，720 高视口容不下手机外壳底部的自定义 tabBar。
+    await runner.page.setViewportSize({ width: 1280, height: 1000 });
+  });
   afterAll(() => runner?.close());
 
   it('渲染隐式组件及其子组件，getTabBar/setData 更新选中态，点击切换且保留页面实例', async () => {
@@ -19,6 +24,10 @@ describe.skipIf(!e2eReady)('官方基础库自定义 tabBar', () => {
     await current().getByTestId('tab-mine').click();
     await waitForPage('pages/mine/index');
     await current().getByTestId('tab-selected').filter({ hasText: '选中：1' }).waitFor();
+    // 首页离开前必须真的变成 1，返回后的 0 才能证明 onShow 完成恢复。
+    const homeSelection = runner.page.frameLocator('iframe[data-path="pages/home/index"]').getByTestId('tab-selected');
+    await homeSelection.filter({ hasText: '选中：1' }).waitFor({ state: 'attached' });
+    expect(await homeSelection.textContent()).toBe('选中：1');
     await current().getByTestId('tab-home').click();
     await waitForPage('pages/home/index');
     expect(await current().locator('#count').innerText()).toBe('计数：1');
@@ -31,6 +40,7 @@ describe.skipIf(!e2eReady)('官方基础库自定义 tabBar', () => {
     await current().getByTestId('tab-home').waitFor();
     await current().locator('#detail').click();
     await waitForPage('pages/detail/index');
+    await current().locator('#back').waitFor();
     expect(await current().getByTestId('tab-home').count()).toBe(0);
     await current().locator('#back').click();
     await waitForPage('pages/home/index');

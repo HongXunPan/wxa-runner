@@ -48,9 +48,10 @@ export interface Runner {
   close(): Promise<void>;
 }
 
-export async function startRunner(files: Record<string, string | object>, options: RunnerOptions = {}): Promise<Runner> {
+/** 接受可手动运行的示例目录，或供协议测试使用的内存文件集合。 */
+export async function startRunner(files: Record<string, string | object> | string, options: RunnerOptions = {}): Promise<Runner> {
   const server = new DevServer({
-    projectPath: createProject({
+    projectPath: typeof files === 'string' ? files : createProject({
       'project.config.json': { appid: 'wxtest0000000000', compileType: 'miniprogram' },
       'app.js': 'App({});',
       ...files

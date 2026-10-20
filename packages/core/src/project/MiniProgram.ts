@@ -13,7 +13,11 @@ export interface AppJson {
   pages: string[];
   entryPagePath?: string;
   window?: Record<string, any>;
-  tabBar?: { list: Array<{ pagePath: string; text?: string; iconPath?: string; selectedIconPath?: string }>; [key: string]: any };
+  tabBar?: {
+    custom?: boolean;
+    list: Array<{ pagePath: string; text?: string; iconPath?: string; selectedIconPath?: string }>;
+    [key: string]: any;
+  };
   subPackages?: Array<{ root: string; pages: string[]; independent?: boolean; [key: string]: any }>;
   subpackages?: AppJson['subPackages'];
   usingComponents?: Record<string, string>;
@@ -136,22 +140,18 @@ export class MiniProgram {
         if (typeof generic === 'object' && generic.default) refs.push(generic.default);
       }
       for (const ref of refs) {
-        const component = this.resolveComponent(id, ref);
-        if (component && !visited.has(component)) {
-          visited.add(component);
-          components.push(component);
-          visit(component);
-        }
+        enter(this.resolveComponent(id, ref));
       }
+    };
+    const enter = (id: string | null) => {
+      if (!id || visited.has(id)) return;
+      visited.add(id);
+      components.push(id);
+      visit(id);
     };
 
     // 自定义 tabBar 不在 usingComponents 中声明，但基础库会按固定路径创建它。
-    const tabBar = 'custom-tab-bar/index';
-    if (app.tabBar?.custom && this.exists(tabBar + '.json')) {
-      visited.add(tabBar);
-      components.push(tabBar);
-      visit(tabBar);
-    }
+    if (app.tabBar?.custom) enter(this.resolveComponent('app', '/custom-tab-bar/index'));
     pages.forEach(visit);
     return { pages, components };
   }

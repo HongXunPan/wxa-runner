@@ -1,0 +1,4 @@
+{
+  "component": true,
+  "usingComponents": { "tab-label": "/components/tab-label/index" }
+}

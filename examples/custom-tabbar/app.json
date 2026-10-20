@@ -1,0 +1,11 @@
+{
+  "pages": ["pages/home/index", "pages/mine/index", "pages/detail/index"],
+  "usingComponents": {},
+  "tabBar": {
+    "custom": true,
+    "list": [
+      { "pagePath": "pages/home/index", "text": "首页" },
+      { "pagePath": "pages/mine/index", "text": "我的" }
+    ]
+  }
+}

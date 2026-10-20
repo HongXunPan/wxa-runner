@@ -1,0 +1,2 @@
+<view id="count" bindtap="increment">计数：{{count}}</view>
+<view id="detail" bindtap="detail">打开详情</view>

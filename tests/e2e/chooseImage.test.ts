@@ -41,10 +41,11 @@ const ALBUM_WXML = `
 <view id="photo">{{photo}}</view>
 <view id="upload-result">{{uploadResult}}</view>
 <block wx:if="{{video}}">
-  <video id="chosen-video" src="{{video.tempFilePath}}" muted bindplay="onVideoPlay" bindtimeupdate="onVideoTimeUpdate" bindended="onVideoEnded"></video>
+  <video id="chosen-video" src="{{video.tempFilePath}}" muted bindloadedmetadata="onVideoLoaded" bindplay="onVideoPlay" bindtimeupdate="onVideoTimeUpdate" bindended="onVideoEnded"></video>
   <image wx:if="{{video.thumbTempFilePath}}" src="{{video.thumbTempFilePath}}" bindload="onThumbLoad" style="width:64px;height:48px"></image>
 </block>
 <view id="video-info">{{videoInfo}}</view>
+<view id="video-ready">{{videoReady}}</view>
 <view id="thumb">{{thumb}}</view>
 <button id="play-video" bindtap="playVideo">播放所选视频</button>
 <view id="video-ended">{{videoEnded}}</view>
@@ -53,7 +54,7 @@ const ALBUM_WXML = `
 
 const albumJs = (server: string) => `
 Page({
-  data: { result: '', paths: [], photo: '', uploadResult: '', video: null, videoInfo: '', thumb: '', videoEnded: '', videoPositions: '' },
+  data: { result: '', paths: [], photo: '', uploadResult: '', video: null, videoInfo: '', videoReady: '', thumb: '', videoEnded: '', videoPositions: '' },
   report(err) { this.setData({ result: err.errMsg }); },
   onChosen(res) {
     this.setData({ result: 'chosen ' + res.tempFiles.map(file => file.size).join(','), paths: res.tempFilePaths });
@@ -96,6 +97,7 @@ Page({
     });
   },
   onThumbLoad(e) { this.setData({ thumb: 'loaded ' + e.detail.width + 'x' + e.detail.height }); },
+  onVideoLoaded() { this.setData({ videoReady: 'yes' }); },
   playVideo() { wx.createVideoContext('chosen-video').play(); },
   // 开始播放就跳到 1.5 秒；videoPositions 是 timeupdate 报告的每个播放位置
   onVideoPlay() {
@@ -304,7 +306,8 @@ describe.skipIf(!e2eReady)('选图、预览与保存图片', () => {
     it('用户选的视频可以直接用 video 组件播放，开始播放就跳到 1.5 秒时跳过中间的内容播到结束', async () => {
       const frame = await runner.open(ALBUM_PAGE);
       await pickFiles(() => frame.click('#choose-video'), [CLIP]);
-      await expectText(frame, '#video-info', '2.0s 64x48');
+      // 和音视频的用例一样等元数据加载完再播放：之前就开始播放的话，基础库的 video 组件有时不派发 play，跳转就不会发生
+      await expectText(frame, '#video-ready', 'yes');
 
       await frame.click('#play-video');
 

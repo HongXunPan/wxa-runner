@@ -41,10 +41,10 @@ export const customTabBarFiles = {
     }
   });`,
   'custom-tab-bar/index.wxml': `<view class="custom-tabs">
-    <view id="tab-selected">选中：{{selected}}</view>
-    <view id="tab-taps">点击：{{taps}}</view>
-    <view id="tab-home" data-path="/pages/home/index" bindtap="switch"><tab-label label="首页" /></view>
-    <view id="tab-mine" data-path="/pages/mine/index" bindtap="switch"><tab-label label="我的" /></view>
+    <view id="tab-selected" data-testid="tab-selected">选中：{{selected}}</view>
+    <view id="tab-taps" data-testid="tab-taps">点击：{{taps}}</view>
+    <view id="tab-home" data-testid="tab-home" data-path="/pages/home/index" bindtap="switch"><tab-label label="首页" /></view>
+    <view id="tab-mine" data-testid="tab-mine" data-path="/pages/mine/index" bindtap="switch"><tab-label label="我的" /></view>
   </view>`,
   'custom-tab-bar/index.wxss': '.custom-tabs { position: fixed; bottom: 0; left: 0; right: 0; padding: 20rpx; background: #eeeeee; }',
   'components/tab-label/index.json': { component: true },

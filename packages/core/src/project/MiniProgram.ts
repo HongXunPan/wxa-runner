@@ -123,7 +123,7 @@ export class MiniProgram {
     return null;
   }
 
-  /** 收集所有页面以及它们（递归）引用到的自定义组件 */
+  /** 收集页面、隐式自定义 tabBar 及它们（递归）引用到的组件 */
   collectUnits(app: AppJson): { pages: string[]; components: string[] } {
     const pages = this.allPages(app);
     const components: string[] = [];
@@ -145,6 +145,13 @@ export class MiniProgram {
       }
     };
 
+    // 自定义 tabBar 不在 usingComponents 中声明，但基础库会按固定路径创建它。
+    const tabBar = 'custom-tab-bar/index';
+    if (app.tabBar?.custom && this.exists(tabBar + '.json')) {
+      visited.add(tabBar);
+      components.push(tabBar);
+      visit(tabBar);
+    }
     pages.forEach(visit);
     return { pages, components };
   }

@@ -1,0 +1,127 @@
+name: 创建上游同步 PR
+
+# 迁移合并且默认分支切回 main 后才启用定时任务。
+on:
+  schedule:
+    # UTC 00:17，即北京时间每天 08:17，实际执行时间可能延迟。
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-main-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'HongXunPan/wxa-runner' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_PROMPT_DISABLED: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_HTTP_LOW_SPEED_LIMIT: '1'
+      GIT_HTTP_LOW_SPEED_TIME: '30'
+    steps:
+      - name: 检查待处理同步 PR
+        id: pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          pending=$(timeout 60s gh api --method GET repos/HongXunPan/wxa-runner/pulls \
+            -f state=open -f base=main -f per_page=100 --paginate \
+            --jq '.[] | select(.head.repo.full_name == "HongXunPan/wxa-runner" and (.head.ref | startswith("ci/upstream-"))) | .html_url')
+          if [[ -n "$pending" ]]; then
+            printf '已有待处理的同步 PR，本次不覆盖、不另建：\n%s\n' "$pending"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.pending.outputs.exists == 'false'
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 检查上游新增提交和历史候选
+        if: steps.pending.outputs.exists == 'false'
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'needed=false' >> "$GITHUB_OUTPUT"
+          timeout 90s git fetch --no-tags https://github.com/open-wxa/wxa-runner.git \
+            refs/heads/main:refs/remotes/upstream/main
+          upstream_sha=$(git rev-parse refs/remotes/upstream/main)
+          # main 带有自有提交，用祖先关系判断是否已包含上游，不能只比较 SHA。
+          if git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            echo 'main 已包含当前上游，无需创建同步 PR。'
+            exit 0
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then
+              exit "$status"
+            fi
+          fi
+          branch="ci/upstream-${upstream_sha:0:12}"
+          previous=$(timeout 60s gh api --method GET repos/HongXunPan/wxa-runner/pulls \
+            -f state=all -f base=main -f head="HongXunPan:$branch" -f per_page=100 --paginate \
+            --jq '.[].html_url')
+          if [[ -n "$previous" ]]; then
+            printf '此上游版本已有处理记录，请人工检查，不重复创建：\n%s\n' "$previous"
+            exit 0
+          fi
+          existing=$(timeout 60s gh api "repos/HongXunPan/wxa-runner/git/matching-refs/heads/$branch" \
+            --jq "map(select(.ref == \"refs/heads/$branch\")) | length")
+          if [[ "$existing" -ne 0 ]]; then
+            echo "::error::候选分支 $branch 已存在但没有对应 PR，请人工检查；本次不覆盖。"
+            exit 1
+          fi
+          echo "sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo 'needed=true' >> "$GITHUB_OUTPUT"
+
+      - name: 普通合并上游并推送候选分支
+        if: steps.compare.outputs.needed == 'true'
+        env:
+          UPSTREAM_SHA: ${{ steps.compare.outputs.sha }}
+          SYNC_BRANCH: ${{ steps.compare.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --no-track -c "$SYNC_BRANCH"
+          if ! git merge --no-ff "$UPSTREAM_SHA" -m "chore: 合并上游 main（${UPSTREAM_SHA:0:12}）"; then
+            echo '::error::上游合并失败，请人工解决冲突；main 未被修改。'
+            exit 1
+          fi
+          # 不执行上游业务代码，不强推，也不直接推送 main。
+          timeout 90s git push origin "HEAD:refs/heads/$SYNC_BRANCH"
+
+      - name: 创建个人 fork 内的同步 PR
+        if: steps.compare.outputs.needed == 'true'
+        env:
+          UPSTREAM_SHA: ${{ steps.compare.outputs.sha }}
+          SYNC_BRANCH: ${{ steps.compare.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 60s gh pr create --repo HongXunPan/wxa-runner --base main --head "$SYNC_BRANCH" \
+            --title "chore: 同步上游 main（${UPSTREAM_SHA:0:12}）" --body-file - <<EOF
+          ## 同步范围
+          - 来源：open-wxa/wxa-runner 的 main，提交：$UPSTREAM_SHA。
+          - 以普通合并保留个人 fork 的修复和维护配置；未直接修改 main。
+
+          ## 人工检查
+          - 检查自定义 tabBar、普通分包和 fork 发布保护是否仍然有效。
+          - 若 CI 等待批准，由维护者审阅后批准运行；检查通过后再决定是否合并。
+          - 本工作流不自动批准、不自动合并，也不发布 npm 包或 GitHub Release。
+          EOF

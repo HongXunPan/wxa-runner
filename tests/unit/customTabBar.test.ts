@@ -46,6 +46,20 @@ describe('自定义 tabBar 隐式组件入口', () => {
     expect(project.collectUnits(project.readAppJson()).components).toEqual([]);
   });
 
+  it('tabBar 同时出现在 pages 时只注册一次，仍收集其子组件', () => {
+    const project = new MiniProgram(createProject({
+      'app.json': { ...exampleApp, pages: [...exampleApp.pages, 'custom-tab-bar/index'] },
+      'custom-tab-bar/index.json': {
+        component: true,
+        usingComponents: { 'tab-label': '/components/tab-label/index' }
+      },
+      'components/tab-label/index.json': { component: true }
+    }));
+    const { pages, components } = project.collectUnits(project.readAppJson());
+    expect([...pages, ...components].filter(id => id === 'custom-tab-bar/index')).toHaveLength(1);
+    expect(components).toEqual(['components/tab-label/index']);
+  });
+
   it('按 miniprogramRoot 查找入口，不生成不存在的组件', () => {
     const project = new MiniProgram(createProject({
       'project.config.json': { miniprogramRoot: 'dist/' },

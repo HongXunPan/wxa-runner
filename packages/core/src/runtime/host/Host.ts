@@ -18,6 +18,7 @@ import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
 import { createSavedFileApis } from './api/savedFiles';
 import { createStorageApis, MiniProgramStorage } from './api/storage';
+import { createSubpackageApis } from './api/subpackages';
 import { createSystemApis } from './api/system';
 import { tempFileRootPath } from './api/tempFiles';
 import { createUiApis } from './api/ui';
@@ -445,6 +446,10 @@ export class Host implements HostApi {
       reLaunch: routeApi(args => this.reLaunch(args.url)),
       switchTab: routeApi(args => this.switchTab(args.url)),
       ...createStorageApis(this.storage),
+      ...createSubpackageApis({
+        subPackages: this.info.wxConfig.subPackages || [],
+        emit: (event, data) => this.emitToService(event, data)
+      }),
       ...createSavedFileApis(this.storage),
       ...createFileSystemApis(),
       ...createSystemApis({

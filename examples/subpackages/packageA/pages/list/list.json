@@ -1,0 +1,12 @@
+{
+  "navigationBarTitleText": "商品列表",
+  "usingComponents": {
+    "goods-card": "../../../packageB/components/goods-card/goods-card",
+    "badge": "../../../packageB/components/badge/badge",
+    "card-skeleton": "../../components/card-skeleton/card-skeleton"
+  },
+  "componentPlaceholder": {
+    "goods-card": "card-skeleton",
+    "badge": "view"
+  }
+}

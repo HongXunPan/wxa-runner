@@ -1,5 +1,5 @@
 /**
- * e2e 公共部分：用临时小程序启动 DevServer，在 Chrome 里打开
+ * e2e 公共部分：用临时小程序或 examples 下的示例启动 DevServer，在 Chrome 里打开
  *
  * 需要本机安装微信开发者工具，以及 Chrome（或通过 WXA_CHROME 指定浏览器路径）。
  */
@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { chromium, Frame, LaunchOptions, Page } from 'playwright';
 import { expect } from 'vitest';
+import { listBaseLibs } from '../../packages/extractor/src/baselib';
 import { DevServer } from '../../packages/core/src/server/DevServer';
 import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
 
@@ -15,6 +16,10 @@ const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
 export const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 export const e2eReady = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
+
+// README 列出的已验证版本。基础库内部调用哪些原生接口因版本而异，本机有哪个就测哪个（CI 上只有内置的 3.7.0）
+export const VERIFIED_BASELIBS = ['2.32.3', '3.3.4', '3.5.8', '3.7.0'];
+export const installedBaseLibs = e2eReady ? new Set(listBaseLibs().map(lib => lib.version)) : new Set<string>();
 
 /**
  * e2e 用 chromium.launch 启动 Chrome 时都要带上这些选项
@@ -48,12 +53,13 @@ export interface Runner {
   close(): Promise<void>;
 }
 
-export async function startRunner(files: Record<string, string | object>, options: RunnerOptions = {}): Promise<Runner> {
+/** project 传文件内容时在临时目录生成项目；传路径时直接运行已有的项目（如 examples 下的示例） */
+export async function startRunner(project: Record<string, string | object> | string, options: RunnerOptions = {}): Promise<Runner> {
   const server = new DevServer({
-    projectPath: createProject({
+    projectPath: typeof project === 'string' ? project : createProject({
       'project.config.json': { appid: 'wxtest0000000000', compileType: 'miniprogram' },
       'app.js': 'App({});',
-      ...files
+      ...project
     }),
     port: 0,
     watch: false,

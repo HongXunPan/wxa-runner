@@ -6,8 +6,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { listBaseLibs } from '../../packages/extractor/src/baselib';
-import { e2eReady, expectText, Runner, startRunner } from './runner';
+import { e2eReady, expectText, installedBaseLibs, Runner, startRunner, VERIFIED_BASELIBS } from './runner';
 
 // addPhoneContact 在浏览器里做不到，运行时不会实现
 const PAGE_JS = `
@@ -61,13 +60,9 @@ describe.skipIf(!e2eReady)('未实现的 wx API', () => {
   });
 });
 
-// README 列出的已验证版本。基础库内部调用哪些原生接口因版本而异，本机有哪个就测哪个（CI 上只有内置的 3.7.0）
-const VERIFIED_BASELIBS = ['2.32.3', '3.3.4', '3.5.8', '3.7.0'];
-const installed = e2eReady ? new Set(listBaseLibs().map(lib => lib.version)) : new Set<string>();
-
 describe.skipIf(!e2eReady)('基础库内部调用的原生接口', () => {
   for (const version of VERIFIED_BASELIBS) {
-    describe.skipIf(!installed.has(version))(`基础库 ${version}`, () => {
+    describe.skipIf(!installedBaseLibs.has(version))(`基础库 ${version}`, () => {
       let runner: Runner;
 
       beforeAll(async () => {

@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "subPackages": [
+    { "root": "packageA", "name": "goods", "pages": ["pages/list/list"] },
+    { "root": "packageB", "pages": ["pages/brand/brand"] }
+  ],
+  "preloadRule": {
+    "pages/index/index": { "network": "all", "packages": ["goods"] }
+  },
+  "window": {
+    "navigationBarTitleText": "分包示例",
+    "navigationBarBackgroundColor": "#07c160",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f5f5"
+  }
+}

@@ -1,5 +1,19 @@
 # 更新日志
 
+## [0.4.1](https://github.com/open-wxa/wxa-runner/compare/v0.4.0...v0.4.1) (2026-10-20)
+
+
+### 问题修复
+
+* 修复隐式组件入口遗漏导致自定义 tabBar 不显示 ([#47](https://github.com/open-wxa/wxa-runner/issues/47)) ([c0822ce](https://github.com/open-wxa/wxa-runner/commit/c0822ce2bcf1d20f3ced69828c89201a0689313f))
+
+## [0.4.0](https://github.com/open-wxa/wxa-runner/compare/v0.3.2...v0.4.0) (2026-10-20)
+
+
+### 新功能
+
+* 支持分包异步化，补齐分包加载任务协议 ([#48](https://github.com/open-wxa/wxa-runner/issues/48)) ([c55958a](https://github.com/open-wxa/wxa-runner/commit/c55958ab08a90f97527f468bacb3d6128e7a092f))
+
 ## [0.3.2](https://github.com/open-wxa/wxa-runner/compare/v0.3.1...v0.3.2) (2026-10-19)
 
 

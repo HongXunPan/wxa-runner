@@ -1,11 +1,30 @@
 Component({
-  data: { selected: 0, taps: 0 },
+  data: {
+    selected: 0,
+    color: "#7A7E83",
+    selectedColor: "#3cc51f",
+    list: [{
+      pagePath: "/index/index",
+      iconPath: "/image/icon_component.png",
+      selectedIconPath: "/image/icon_component_HL.png",
+      text: "组件"
+    }, {
+      pagePath: "/index/index2",
+      iconPath: "/image/icon_API.png",
+      selectedIconPath: "/image/icon_API_HL.png",
+      text: "接口"
+    }]
+  },
+  attached() {
+  },
   methods: {
-    switch(e) {
-      const { path, index } = e.currentTarget.dataset;
-      // 离开前改变当前实例，返回时由页面 onShow 恢复，避免选中态断言始终为真。
-      this.setData({ selected: Number(index), taps: this.data.taps + 1 });
-      wx.switchTab({ url: path });
+    switchTab(e) {
+      const data = e.currentTarget.dataset
+      const url = data.path
+      wx.switchTab({url})
+      this.setData({
+        selected: data.index
+      })
     }
   }
-});
+})

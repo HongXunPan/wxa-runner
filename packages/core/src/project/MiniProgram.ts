@@ -139,9 +139,7 @@ export class MiniProgram {
       for (const generic of Object.values(json.componentGenerics || {})) {
         if (typeof generic === 'object' && generic.default) refs.push(generic.default);
       }
-      for (const ref of refs) {
-        enter(this.resolveComponent(id, ref));
-      }
+      for (const ref of refs) enter(this.resolveComponent(id, ref));
     };
     const enter = (id: string | null) => {
       if (!id || visited.has(id)) return;

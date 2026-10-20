@@ -16,6 +16,31 @@ npx wxa-runner dev ./dist/dev/mp-weixin   # 原生小程序目录，或 uni-app 
 
 它不替代开发者工具：预览、上传、真机调试仍然要用开发者工具。
 
+## 个人 fork 维护说明
+
+本 fork 的维护目标是：`main` 保存“上游代码 + 自有修复 + 维护配置”，作为可直接使用的主线，
+不再将 `main` 作为上游的纯镜像。迁移 PR 合并并将默认分支切回 `main` 后，此维护方式生效。
+
+当前纳入的自有修复：
+- 自定义 tabBar：补齐隐式组件入口及其依赖，见上游 [PR #47](https://github.com/open-wxa/wxa-runner/pull/47)。
+- 普通分包：补齐本地就绪和预加载任务协议，见上游 [PR #48](https://github.com/open-wxa/wxa-runner/pull/48)。
+  不代表支持真实分包下载、独立分包隔离或全部分包异步化能力。
+
+维护约定：
+- 无论上游是否接受上述 PR，fork 都可保留自有修复；独立 PR 分支不混入维护配置。
+- 每天北京时间 08:17 检查上游，也可手动运行“创建上游同步 PR”；调度可能延迟。
+  已包含上游时不建 PR，有更新时只创建 fork 内的普通合并 PR，不直接更新 `main`。
+- 同时最多保留一个待处理的同步 PR；已有候选或历史 PR 时不覆盖、不重复创建。
+  合并冲突、推送或权限失败时任务停止，由维护者检查日志并处理，不自动重试。
+- Actions 需开启“Allow GitHub Actions to create and approve pull requests”，工作流仅创建 PR，
+  不批准、不自动合并。CI 若等待批准，需维护者审阅后批准运行，再检查结果并手动合并。
+- 合并前检查补丁与发布保护；有问题可关闭 PR，`main` 不变；已合并后通过回退 PR 撤销，不强推重置主线。
+- fork 不自动发布 npm、tag 或 GitHub Release；文档工作流只构建，不部署 GitHub Pages。
+  旧 `ci/upstream-sync` 调度分支留存，旧镜像同步任务保持停用。
+
+上面的 `npx wxa-runner` 使用上游 npm 发行版，不包含本 fork 尚未被上游收录的修复。
+使用自有修复需按 [源码构建说明](./CONTRIBUTING.md#构建与测试)构建本 fork，再通过源码 CLI 入口运行。
+
 ## 文档
 
 - [快速开始](https://open-wxa.github.io/wxa-runner/getting-started)：安装、基础库和编译器

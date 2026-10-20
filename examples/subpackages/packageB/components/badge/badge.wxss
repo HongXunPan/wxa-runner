@@ -1,0 +1,1 @@
+.badge { display: inline-block; margin-top: 12rpx; padding: 0 12rpx; color: #fff; background: #fa5151; }

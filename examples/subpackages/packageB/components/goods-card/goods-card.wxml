@@ -1,0 +1,1 @@
+<view class="card">{{title}}（packageB 的组件）</view>

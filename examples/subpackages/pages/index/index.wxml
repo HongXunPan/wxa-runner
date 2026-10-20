@@ -1,0 +1,13 @@
+<view class="section">
+  <view class="title">分包预下载</view>
+  <view>打开首页后，按 preloadRule 预下载 packageA（name 为 goods）</view>
+</view>
+<view class="section">
+  <view class="title">主包用 require.async 引用分包的 JS</view>
+  <button id="load-price" bindtap="loadPrice">从 packageB 加载价格格式化</button>
+  <view id="price">{{price}}</view>
+</view>
+<view class="section">
+  <view class="title">分包页面引用另一个分包的组件和 JS</view>
+  <button id="to-list" bindtap="toList">打开 packageA 的商品列表</button>
+</view>

@@ -208,6 +208,7 @@ rpx 换算由 wcsc 生成的运行时完成，不需要另外处理。
 - 每个页面/组件 json 都保证有 `usingComponents` 字段
 
 **组件收集**：从所有页面（含分包）出发，递归解析 `usingComponents` 和 `componentGenerics` 默认实现。
+开启自定义 tabBar（`tabBar.custom`）时，基础库按固定路径创建的 `custom-tab-bar/index` 也作为入口收集。
 引用解析顺序：`/` 开头为根路径；否则先按相对路径，再沿目录向上查找 `miniprogram_npm`。
 
 **`__wxConfig`**：字段与开发者工具一致（`pages`、`page["x.html"].window`、`global.window` 默认值、

@@ -13,7 +13,11 @@ export interface AppJson {
   pages: string[];
   entryPagePath?: string;
   window?: Record<string, any>;
-  tabBar?: { list: Array<{ pagePath: string; text?: string; iconPath?: string; selectedIconPath?: string }>; [key: string]: any };
+  tabBar?: {
+    custom?: boolean;
+    list: Array<{ pagePath: string; text?: string; iconPath?: string; selectedIconPath?: string }>;
+    [key: string]: any;
+  };
   subPackages?: Array<{ root: string; pages: string[]; independent?: boolean; [key: string]: any }>;
   subpackages?: AppJson['subPackages'];
   usingComponents?: Record<string, string>;
@@ -123,7 +127,7 @@ export class MiniProgram {
     return null;
   }
 
-  /** 收集所有页面以及它们（递归）引用到的自定义组件 */
+  /** 收集页面、隐式自定义 tabBar 及它们（递归）引用到的组件 */
   collectUnits(app: AppJson): { pages: string[]; components: string[] } {
     const pages = this.allPages(app);
     const components: string[] = [];
@@ -135,16 +139,17 @@ export class MiniProgram {
       for (const generic of Object.values(json.componentGenerics || {})) {
         if (typeof generic === 'object' && generic.default) refs.push(generic.default);
       }
-      for (const ref of refs) {
-        const component = this.resolveComponent(id, ref);
-        if (component && !visited.has(component)) {
-          visited.add(component);
-          components.push(component);
-          visit(component);
-        }
-      }
+      for (const ref of refs) enter(this.resolveComponent(id, ref));
+    };
+    const enter = (id: string | null) => {
+      if (!id || visited.has(id)) return;
+      visited.add(id);
+      components.push(id);
+      visit(id);
     };
 
+    // 自定义 tabBar 不在 usingComponents 中声明，但基础库会按固定路径创建它。
+    if (app.tabBar?.custom) enter(this.resolveComponent('app', '/custom-tab-bar/index'));
     pages.forEach(visit);
     return { pages, components };
   }

@@ -34,7 +34,7 @@ wxa-runner 用的是和开发者工具同一套官方基础库，渲染、组件
 | 渲染 | WXML、WXSS、WXS、自定义组件，App / Page / Component 生命周期 |
 | 路由 | navigateTo、redirectTo 等页面路由，10 层页面栈，tabBar |
 | 分包 | 普通分包、独立分包，分包预下载（preloadRule），分包异步化：跨分包引用组件（componentPlaceholder）和 JS（require.async）。代码启动时全部加载，没有下载过程 |
-| 界面 | 导航栏、tabBar、toast / modal / actionSheet，默认模拟 iPhone X |
+| 界面 | 导航栏、tabBar（包括自定义 tabBar）、toast / modal / actionSheet，默认模拟 iPhone X |
 | 组件 | picker、canvas、camera、video、map（需要联网）、web-view |
 | 媒体 | chooseImage、chooseMedia（只能选图片）由浏览器选文件，previewImage、getImageInfo，保存到相册即下载；InnerAudioContext 播放音频 |
 | 网络 | request、上传、下载由开发服务器转发（没有跨域限制），WebSocket |

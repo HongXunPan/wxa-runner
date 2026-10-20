@@ -20,6 +20,8 @@ concurrency:
 
 jobs:
   release-please:
+    # 个人 fork 只维护源码，不创建发布 PR、tag、Release 或发布 npm 包。
+    if: github.repository == 'open-wxa/wxa-runner'
     runs-on: ubuntu-latest
     permissions:
       # 打 tag、建 GitHub Release、开发布 PR

@@ -1,0 +1,31 @@
+name: 同步上游主分支
+
+# 调度配置留在独立默认分支，main 只保留上游历史，不夹带 fork 专用工作流。
+on:
+  schedule:
+    # UTC 00:17，即北京时间每天 08:17，避开整点高峰。
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 定时与手动同步串行执行，不取消正在进行的同步。
+concurrency:
+  group: upstream-main-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'HongXunPan/wxa-runner' && github.ref == 'refs/heads/ci/upstream-sync'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_PROMPT_DISABLED: '1'
+    steps:
+      - name: 快进同步上游 main
+        # 不使用 --force；分叉或权限异常时直接失败，不覆盖、不重试。
+        run: gh repo sync HongXunPan/wxa-runner --source open-wxa/wxa-runner --branch main

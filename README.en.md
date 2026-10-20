@@ -102,7 +102,7 @@ See [docs/testing.md](./docs/testing.md) (in Chinese) for configuration, mocking
 | Rendering | WXML, WXSS, WXS, custom components, App / Page / Component lifecycles |
 | Routing | navigateTo, redirectTo and the other page routes, a 10-level page stack, tab bar |
 | Subpackages | Regular and independent subpackages, preloading (preloadRule), async subpackages: components (componentPlaceholder) and JS (require.async) from other subpackages. All code is loaded at startup, with nothing to download |
-| UI | Navigation bar, tab bar, toast / modal / actionSheet; iPhone X by default |
+| UI | Navigation bar, tab bar (custom tab bars included), toast / modal / actionSheet; iPhone X by default |
 | Components | picker, canvas, camera, video, map (needs network access), web-view |
 | Media | chooseImage and chooseMedia (images only) pick files through the browser; previewImage, getImageInfo; saving to the album downloads the image; InnerAudioContext plays audio |
 | Network | request, upload and download through a proxy (no CORS limits), WebSocket |

@@ -1,4 +1,7 @@
 {
-  "appid": "wxtest0000000000",
-  "compileType": "miniprogram"
+  "appid": "touristappid",
+  "projectname": "wxa-runner-custom-tabbar",
+  "compileType": "miniprogram",
+  "libVersion": "3.7.0",
+  "setting": {}
 }

@@ -1,0 +1,2 @@
+<view class="intro">组件页：底部的 tabBar 由 custom-tab-bar 组件渲染</view>
+<button id="to-detail" bindtap="toDetail">打开详情页</button>

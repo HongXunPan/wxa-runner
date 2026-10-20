@@ -1,0 +1,1 @@
+<view class="intro">接口页：切换 tab 后，页面在 onShow 里用 getTabBar() 更新选中态</view>

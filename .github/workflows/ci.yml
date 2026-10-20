@@ -7,16 +7,35 @@ on:
   workflow_dispatch:
   # release.yml 发布前先跑一遍
   workflow_call:
+    inputs:
+      candidate-sha:
+        description: 只读验证的候选提交，未提供时保留原有行为
+        type: string
+        default: ''
+      base-sha:
+        description: 候选提交的可信基线，用于提交信息校验
+        type: string
+        default: ''
+      head-branch:
+        description: 候选分支名，用于分支规范校验
+        type: string
+        default: ''
+
+permissions:
+  contents: read
 
 jobs:
   # PR 里的提交信息和分支名要符合规范（本地的 commit-msg、pre-push hook 可以 --no-verify 跳过，这里兜底）
   conventions:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || inputs.candidate-sha != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.candidate-sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
         with:
@@ -29,22 +48,29 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+      - env:
+          BASE_SHA: ${{ inputs.base-sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.candidate-sha || github.event.pull_request.head.sha }}
+        run: pnpm exec commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
 
       # fork 来的 PR 不管分支名
-      - if: github.event.pull_request.head.repo.full_name == github.repository
+      - if: inputs.head-branch != '' || github.event.pull_request.head.repo.full_name == github.repository
         env:
-          BRANCH: ${{ github.head_ref }}
+          BRANCH: ${{ inputs.head-branch || github.head_ref }}
         run: node scripts/check-branch-name.mjs "$BRANCH"
 
   test:
     # Linux 上没有微信开发者工具：编译器用 miniprogram-compiler 的 Linux 版，基础库用 @open-wxa/wxa-baselib
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       # runner 镜像自带 Google Chrome
       WXA_CHROME: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate-sha }}
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
         with:

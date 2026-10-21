@@ -127,7 +127,7 @@ wxa-runner/
 │           └── server.ts              # 开发服务器参数，路径相对 Playwright 配置文件
 │
 ├── docs/                              # 使用文档，同时是 VitePress 文档站点
-├── examples/                          # showcase（覆盖主要功能）、hello-world、tabbar
+├── examples/                          # showcase（覆盖主要功能）、hello-world、custom-tabbar、subpackages
 └── tests/
     ├── unit/                          # 解包、编译、项目解析、构建、文件监听、运行时纯逻辑、原生 API
     ├── integration/                   # DevServer 路由、网络代理
@@ -280,7 +280,9 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 5. **鼠标 → 触摸**：页面只应收到触摸事件。基础库在部分版本/平台上会自己把鼠标或 pointer 事件转换为触摸，
    和我们的转换叠加会触发两次 tap，所以在 window 捕获阶段最先拦下鼠标类事件再统一转换。
    另外基础库在元素滚动后 50ms 内会取消 tap，自动化测试的「滚动到元素 → 立刻点击」会因此失效，
-   转换时先等两帧让 scroll 事件派发完，必要时顺延
+   转换时先等两帧让 scroll 事件派发完，必要时顺延。
+   swiper 等组件只看第一个 touchmove 判断手势方向，鼠标刚拖动时的 1px 抖动会让横向拖动被当成竖向，
+   所以按下后移出 8px 之前的 mousemove 不转发（小于基础库取消 tap 的 10px）；没移出就松手时补一个 touchmove，小幅拖动不丢
 6. **内置组件样式提前注入**：基础库在文档没加载完时把内置组件样式（`wx-view` 的 display、`wx-canvas` 的默认尺寸等）
    推迟到 `window.onload` 注入。开发者工具在文档加载完后才注入基础库，那边是立即注入；这里基础库随页面同步加载，
    首屏渲染早于 onload，canvas 这类挂载时测量尺寸的组件会量错。所以加载完成前赋给 `window.onload` 的回调改为立即执行
@@ -330,7 +332,7 @@ navigateTo(url)
 | network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理。`success` 的 data 按 `responseType` 是文本或 ArrayBuffer，被拦截的请求也一样；WebSocket 的二进制消息是 ArrayBuffer。基础库把业务传的 ArrayBuffer（请求体、WebSocket 消息）原样交给宿主，不经 `__nativeBuffers__`。每个 `wx.request` 都记录下来，供测试 API 的 `requests()` 读取 |
 | routes | 请求拦截规则：setup 的 `network.routes` 和测试 API 的 `route` 共用，在浏览器里匹配，命中的请求不发往代理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
-| media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
+| media | 选图和视频（chooseImage / chooseMedia / chooseVideo）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
 | map | map 组件要的定位（`private_geolocation`）和 `moveToMapLocation`，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
@@ -372,15 +374,28 @@ setup 和测试 API 的 `mock` 都在注册表这一层覆盖原生实现。
   网页内自己跳转时，同源网页报告新地址并触发 load，跨域网页读不到地址就不报；iframe 加载失败没有事件，binderror 不会触发。
   基础库拿到空的业务域名列表时会把 web-view 事件里的网页地址清空，所以拉取业务域名列表（`operateWXData` 的
   `webapi_getwxanetwork`）明确返回失败，基础库因此不做校验，等同开发者工具的「不校验业务域名」
+- **2d、webgl 画布**：基础库在 devtools 平台把这两种画布建在逻辑层文档的 body 里，按渲染层报来的位置（`canvasInserted` /
+  `canvasUpdated`）绝对定位、随页面滚动，开发者工具把逻辑层透明地叠在页面上显示，所以那里的画布盖住页面里的所有内容。
+  真机上画布和页面元素一样参与层级，宿主照真机做：业务第一次取上下文时（`getContext`，还没开始画），把画布元素搬进页面里对应的
+  `wx-canvas`，铺满它自己的 canvas。同源 iframe 之间移动元素，画布内容和已经拿到的上下文都不受影响。
+  逻辑层的画布元素上没有编号，基础库把「元素 → 编号」记在内部的 WeakMap 里（`WeakMap.prototype.set` 等内置方法被基础库锁住，拦不到），
+  宿主就给还没放好的同类型画布逐个发一条 top 带记号的 `canvasUpdated`，记号写到哪个元素上就是哪个编号，再用原来的位置发一次恢复（`Host.placeCanvas`）。
+  xr-frame 的画布不搬：基础库收到它的 `canvasUpdated` 会给 xr-frame 派发 resize，xr-frame 在 wxa-runner 里也没有验证过。
+  搬进页面后基础库仍会按逻辑层的布局改它的位置和显隐，渲染层用 `!important` 样式压住；删除时基础库还从逻辑层的 body 里删，`frame.ts` 兼容。
+  `canvas.createImage` 调开发者工具提供的 `__global.createCustomImage`（`frame.ts`）：代码包里的图片去掉开发者工具的 `/__pageframe__/` 前缀，
+  从开发服务器根路径加载；其他域名的图片经代理变成同源，画上去不污染画布，之后照样能读像素、导出
 - **临时文件**：canvas 导出、拍照、录像的结果（经 `base64ToTempFilePath`）、选中的图片、`downloadFile` 下载的文件都存到开发服务器，返回 http 地址。
   image、video 组件只原样使用 http(s) 地址，`blob:` 之类的地址会被当成页面相对路径。
   旧版 canvas 的 `drawImage` 正好相反：基础库把 http(s) 地址都当成网络图片直接跳过（只放行开发者工具的 `http://tmp/` 等），
   不报错，画布上什么也没有。所以宿主转发绘制指令（`canvasActionsChanged`）时，把其中的临时文件地址换成根路径 `/__wxa__/tmp/…`，
   页面和组件里都按开发服务器的根目录解析
-- **选图**：「从手机相册选择」和「拍摄」都打开浏览器的文件选择框（拍摄带 `capture`，手机浏览器上会打开相机）。
+- **选图和视频**：「从手机相册选择」和「拍摄」都打开浏览器的文件选择框（拍摄带 `capture`，手机浏览器上会打开相机）。
   和真机一样，两种来源都可选时先弹菜单。浏览器只允许在用户点击后的几秒内打开文件选择框（页面里的点击也算，会传到宿主页），
   没有经过点击就调用时也先弹菜单，用户点菜单就是一次点击；否则选择框打不开，回调永远不来。
-  `chooseMedia` 只支持图片。`previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
+  选视频时用 `<video>` 读出时长和宽高，截第一帧作缩略图，浏览器解码不了的格式这几项为空。
+  这些规则和开发者工具一致：不允许混选（`mediaType` 没有 `mix`）时选了视频就只要视频；允许混选时 `type` 总是 `mix`；
+  chooseVideo 也返回 `thumbTempFilePath`；chooseMedia 选的图片不带宽高。
+  `previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
 - **音频（InnerAudioContext）**：3.5.8 起平台是 devtools 时基础库用 Web Audio 播放，先把音频读成 ArrayBuffer。
   网络音频经带 `__skipDomainCheck__` 的内部请求下载，宿主按请求的形状（`responseType` 为 `arraybuffer` 且带 `enableCache`，
   2.32.3 到 3.17.4 都是这样）只放行这一种，经代理下载；代码包里的音频经 `readFile` 向开发服务器读取。

@@ -40,10 +40,12 @@ describe.skipIf(!ready)('DevServer', () => {
   });
 
   it('app-info 返回页面、基础库版本和 __wxConfig', async () => {
+    const appJson = JSON.parse(fs.readFileSync(path.join(EXAMPLES, 'showcase/app.json'), 'utf8'));
     const info = await (await get('/__wxa__/app-info.json')).json();
-    expect(info.pages).toEqual(['pages/index/index', 'pages/detail/detail', 'pages/mine/mine']);
+    expect(info.pages).toEqual(appJson.pages);
     expect(info.baseLibVersion).toBe(server.baseLib.version);
-    expect(info.wxConfig.tabBar.list.map((item: any) => item.pagePath)).toEqual(['pages/index/index.html', 'pages/mine/mine.html']);
+    expect(info.wxConfig.tabBar.list.map((item: any) => item.pagePath))
+      .toEqual(appJson.tabBar.list.map((item: any) => `${item.pagePath}.html`));
   });
 
   it('逻辑层按顺序加载桥、基础库、业务模块和 bootstrap，并注入启动页面', async () => {
@@ -93,6 +95,26 @@ describe.skipIf(!ready)('DevServer', () => {
     expect(file.headers.get('content-type')).toContain('image/jpeg');
     expect(await file.text()).toBe('jpeg-bytes');
     expect((await get('/__wxa__/tmp/missing.jpg')).status).toBe(404);
+  });
+
+  it('临时文件支持分段请求（video 组件播放时要能跳转），分段和完整响应的 ETag 相同，超出范围时返回 416', async () => {
+    const saved = await fetch(base + '/__wxa__/tmp?type=mp4', { method: 'POST', body: Buffer.from('0123456789') });
+    const { url } = await saved.json();
+
+    const part = await fetch(url, { headers: { range: 'bytes=2-5' } });
+    expect(part.status).toBe(206);
+    expect(part.headers.get('content-range')).toBe('bytes 2-5/10');
+    expect(await part.text()).toBe('2345');
+    expect(part.headers.get('etag')).toBe((await fetch(url)).headers.get('etag'));
+
+    const tail = await fetch(url, { headers: { range: 'bytes=7-' } });
+    expect(await tail.text()).toBe('789');
+    const last = await fetch(url, { headers: { range: 'bytes=-3' } });
+    expect(await last.text()).toBe('789');
+
+    const outside = await fetch(url, { headers: { range: 'bytes=20-' } });
+    expect(outside.status).toBe(416);
+    expect(outside.headers.get('content-range')).toBe('bytes */10');
   });
 
   it('临时文件可以只查大小，删除后访问不到', async () => {

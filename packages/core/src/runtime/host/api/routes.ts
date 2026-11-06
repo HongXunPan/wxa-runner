@@ -17,14 +17,18 @@ interface Route {
 
 type RequestMatcher = (request: Pick<MockRequest, 'url' | 'method'>) => boolean;
 
+/** 拦截规则给出的响应。响应体原样是文本或二进制，小程序拿到哪种由请求的 responseType 决定 */
+export interface MockedResponse {
+  statusCode: number;
+  header: Record<string, string>;
+  body: string | BufferSource;
+}
+
 export interface MatchedRoute {
   /** 命中的规则，即添加时的写法 */
   pattern: string;
-  /**
-   * 响应体原样是文本或二进制，小程序拿到哪种由请求的 responseType 决定
-   * @throws 延迟期间 signal 被 abort 时，抛出 signal.reason
-   */
-  respond(signal?: AbortSignal): Promise<{ statusCode: number; header: Record<string, string>; body: string | BufferSource }>;
+  /** @throws 延迟期间 signal 被 abort 时，抛出 signal.reason */
+  respond(signal: AbortSignal): Promise<MockedResponse>;
 }
 
 export class RequestRoutes {
@@ -97,11 +101,11 @@ function checkDelay(delay: unknown) {
   }
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(signal.reason);
+    if (signal.aborted) return reject(signal.reason);
     const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    signal.addEventListener('abort', () => {
       clearTimeout(timer);
       reject(signal.reason);
     }, { once: true });

@@ -1,5 +1,5 @@
 /**
- * 真实登录用的开发者 ticket 从哪来
+ * --devtools-login 用的开发者 ticket 从哪来
  *
  * 环境变量 WECHAT_DEV_TICKET 优先。新版开发者工具（Electron）把登录态加密存放，磁盘上只剩旧版留下的、
  * 早已作废的 ticket，所以要向正在运行的开发者工具要：用它的命令行为项目开启自动化接口，
@@ -43,7 +43,7 @@ export function developerTicketSource(projectPath: string, logger: Pick<Console,
   const startOnce = () => {
     if (!automatorPort) {
       const starting = startAutomation(cli, projectPath).then(port => {
-        logger.log(`[wxa-runner] 真实登录：已在微信开发者工具里为项目开启自动化接口（端口 ${port}），ticket 从开发者工具实时获取`);
+        logger.log(`[wxa-runner] --devtools-login：已在微信开发者工具里为项目开启自动化接口（端口 ${port}），ticket 从开发者工具实时获取`);
         return port;
       });
       starting.catch(() => {
@@ -133,6 +133,7 @@ function runCli(cli: string, args: string[]): Promise<string> {
  * util.inspect 默认用单引号，字符串里有单引号时改用双引号，两种都有时用反引号
  */
 function cliErrorMessage(stdout: string): string {
+  // oxlint-disable-next-line no-control-regex -- 去掉命令行输出里的 ANSI 颜色
   const output = stdout.replace(/\x1b\[[0-9;]*m/g, '');
   const start = output.indexOf('[error]');
   const error = (start < 0 ? output : output.slice(start + '[error]'.length)).trim();

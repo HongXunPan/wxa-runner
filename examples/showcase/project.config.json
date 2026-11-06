@@ -1,5 +1,5 @@
 {
-  "appid": "wxae3c3d090c608361",
+  "appid": "wxf2cdd10951f54af0",
   "projectname": "wxa-runner-showcase",
   "compileType": "miniprogram",
   "libVersion": "3.7.0",
@@ -17,7 +17,7 @@
     "minifyWXML": true,
     "localPlugins": false,
     "disableUseStrict": false,
-    "useCompilerPlugins": false,
+    "useCompilerPlugins": ["less"],
     "condition": false,
     "swc": false,
     "disableSWC": true,

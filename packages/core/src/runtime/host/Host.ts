@@ -5,7 +5,10 @@
  * App/Page 的生命周期全部由官方基础库根据这个事件驱动。
  */
 
-import type { AppInfo, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
+import type { ConsoleLevel } from '../consoleHook';
+import type { AppInfo, ForwardConsole, FrameBridge, FrameKind, HostApi, InvokeCallback } from '../types';
+import { ConsoleForwarder, ConsoleReport } from './ConsoleForwarder';
+import { caughtError, RecentErrors } from './frameErrors';
 import { ApiContext, ApiRegistry, ApiResult, fail, ok } from './api/registry';
 import { createAudioApis } from './api/audio';
 import { createFileSystemApis } from './api/fs';
@@ -13,6 +16,7 @@ import { createLibFileApis } from './api/libFiles';
 import { createMapApis, MapOperations } from './api/map';
 import { createMediaApis } from './api/media';
 import { createMiscApis } from './api/misc';
+import { installMockMirror, MockMirror } from './api/mockMirror';
 import { createNetworkApis, RequestLog } from './api/network';
 import { createPickerApis, fetchRegionData } from './api/picker';
 import { RequestRoutes } from './api/routes';
@@ -22,7 +26,7 @@ import { createSubpackageApis } from './api/subpackages';
 import { createSystemApis } from './api/system';
 import { tempFileRootPath } from './api/tempFiles';
 import { createUiApis } from './api/ui';
-import { createWebViewApis } from './api/webView';
+import { createWebViewApis, iframeWebViews, WebViewInfo, WebViewWindows } from './api/webView';
 import { PageStack } from './PageStack';
 import { PageView } from './PageView';
 import { cloneInto, cloneNativeInto } from './realm';
@@ -47,10 +51,32 @@ export interface FrameError {
 
 const ROUTE_DONE_DELAY = 300;
 const PAGE_LOAD_TIMEOUT = 15000;
+/** 基础库建在逻辑层里、要搬进页面的画布类型；旧版 canvas-id 画布在渲染层里画 */
+const BINDING_CANVAS_TYPES = new Set(['2d', 'webgl', 'webgl2']);
+/** placeCanvas 探测用的 top，不会是真实位置。读回 style.top 时浏览器只保留 6 位有效数字，所以用位数少的整数 */
+const PROBE_TOP = -54321;
+
+interface CanvasBox {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+interface CanvasRecord {
+  webviewId: number;
+  type: string;
+  box: CanvasBox;
+  placed: boolean;
+}
+
+/** 渲染层的 canvasInserted / canvasUpdated / canvasRemoved 消息里的 data */
+type CanvasMessage = Partial<CanvasBox> & { canvasNumber: number; type?: string; isXrFrame?: boolean };
 
 export class Host implements HostApi {
   readonly device;
   readonly errors: FrameError[] = [];
+  private readonly recentErrors = new RecentErrors();
   /** 小程序发出的 wx.request */
   readonly requests = new RequestLog();
   readonly api = new ApiRegistry(context => this.reportUnimplemented(context));
@@ -58,6 +84,8 @@ export class Host implements HostApi {
   readonly storage: MiniProgramStorage;
   /** setup 和测试 API 声明的请求拦截 */
   readonly routes = new RequestRoutes();
+  /** 把被拦截的请求显示在 Network 面板里 */
+  private readonly mockMirror: MockMirror | null;
   private readonly mapOperations = new MapOperations((webviewId, event, data) => this.publishToPages(event, data, [webviewId]));
   private service: { win: Window; bridge: FrameBridge } | null = null;
   /** 新版基础库的业务子上下文；旧版基础库业务代码直接在逻辑层 iframe 里 */
@@ -73,12 +101,32 @@ export class Host implements HostApi {
   private nextWebviewId = 1;
   private routeChain: Promise<unknown> = Promise.resolve();
   private routeListeners: Array<(page: PageView, openType: OpenType) => void> = [];
+  /** 渲染层报来的 2d、webgl 画布，按编号记下所在页面和最近的位置，供 placeCanvas 认出逻辑层的画布元素 */
+  private readonly canvases = new Map<number, CanvasRecord>();
+  private readonly forwarder: ConsoleForwarder;
+  /** 新窗口模式下 web-view 的网页窗口；默认的 iframe 模式为 null */
+  private readonly webViewWindows: WebViewWindows | null;
 
-  constructor(readonly info: AppInfo, root: HTMLElement) {
+  /** @param sendReport 把报错发给开发服务器打印到终端，见 AppInfo.forwardConsole */
+  constructor(readonly info: AppInfo, root: HTMLElement, sendReport: (report: ConsoleReport) => void = () => undefined) {
+    this.mockMirror = installMockMirror(info.externalServiceWorker);
     this.device = info.device;
+    this.forwarder = new ConsoleForwarder(
+      info.forwardConsole ?? false,
+      sendReport,
+      (kind, webviewId) => kind === 'service' ? this.currentPage()?.path : this.pages.get(webviewId)?.path,
+      kind => this.launchHints(kind)
+    );
     this.shell = new PhoneShell(root, info.device);
     this.tabPaths = new Set((info.wxConfig.tabBar?.list || []).map((item: any) => stripHtml(item.pagePath)));
     this.storage = new MiniProgramStorage(window.localStorage, info.appid);
+    this.webViewWindows = info.webViewWindow
+      ? new WebViewWindows(info.device, webviewId => this.currentPage()?.id === webviewId)
+      : null;
+    if (this.webViewWindows) {
+      const windows = this.webViewWindows;
+      window.addEventListener('pagehide', () => windows.closeAll());
+    }
 
     const tabBar = info.wxConfig.tabBar
       ? { ...info.wxConfig.tabBar, list: info.wxConfig.tabBar.list.map((item: any) => ({ ...item, pagePath: stripHtml(item.pagePath) })) }
@@ -124,6 +172,31 @@ export class Host implements HostApi {
     this.appContext = win;
   }
 
+  /**
+   * 逻辑层的画布元素上没有编号，只能问基础库：给每个还没放好的同类型画布发一条 top 带记号的 canvasUpdated，
+   * 基础库把位置写到那个编号的元素上，记号落在这个元素上就是它；随后用原来的位置再发一次，恢复原样。
+   * 基础库只在类型与画布一致时才调到元素的 getContext，按类型筛选不会漏掉
+   */
+  placeCanvas(canvas: HTMLCanvasElement, type: string) {
+    const service = this.service;
+    if (!service) return;
+    const update = (canvasNumber: number, record: CanvasRecord, top: number) => service.bridge.__dispatchSub(
+      'canvasUpdated',
+      this.cloneForService({ data: { canvasNumber, ...record.box, top }, options: { timestamp: Date.now() } }),
+      record.webviewId
+    );
+    for (const [canvasNumber, record] of this.canvases) {
+      if (record.placed || record.type !== type) continue;
+      update(canvasNumber, record, PROBE_TOP);
+      const matched = canvas.style.top === `${PROBE_TOP}px`;
+      update(canvasNumber, record, record.box.top);
+      if (matched) {
+        record.placed = this.pages.get(record.webviewId)?.placeCanvas(canvas, canvasNumber) ?? false;
+        return;
+      }
+    }
+  }
+
   frameLoaded(kind: FrameKind, webviewId: number) {
     if (kind === 'service') this.serviceLoaded();
     else this.pages.get(webviewId)?.loaded();
@@ -151,10 +224,28 @@ export class Host implements HostApi {
     if (event === 'operateMapCallback' && this.mapOperations.receive(data)) return;
 
     const fromId = this.webviewIdOf(win);
+    this.trackCanvas(event, (data as { data?: CanvasMessage } | null)?.data, fromId);
     const service = this.service;
     if (!service) return;
     const payload = this.cloneForService(data);
     queueMicrotask(() => service.bridge.__dispatchSub(event, payload, fromId));
+  }
+
+  /**
+   * xr-frame 的画布不记：基础库收到它的 canvasUpdated 会派发 resize 给 xr-frame，探测会带来多余的 resize，
+   * 而 xr-frame 在 wxa-runner 里没有验证过，保持原样
+   */
+  private trackCanvas(event: string, data: CanvasMessage | undefined, webviewId: number) {
+    if (!data) return;
+    const record = this.canvases.get(data.canvasNumber);
+    if (event === 'canvasInserted' && data.type && BINDING_CANVAS_TYPES.has(data.type) && !data.isXrFrame) {
+      this.canvases.set(data.canvasNumber, { webviewId, type: data.type, box: { top: 0, left: 0, width: 0, height: 0, ...boxOf(data) }, placed: false });
+    } else if (event === 'canvasUpdated' && record) {
+      // 有的 canvasUpdated 只带宽高，没带的字段保留原值
+      record.box = { ...record.box, ...boxOf(data) };
+    } else if (event === 'canvasRemoved') {
+      this.canvases.delete(data.canvasNumber);
+    }
   }
 
   /** 不指定目标时发给所有页面：旧版 canvas 的绘制指令就是这样发的，由 canvasNumber 找到对应画布 */
@@ -172,28 +263,54 @@ export class Host implements HostApi {
   reportError(kind: FrameKind, webviewId: number, error: unknown) {
     // 错误对象来自 iframe，跨 realm 的 instanceof Error 不成立；DOMException 等也不是 Error 的实例
     const err = typeof (error as Error | null)?.message === 'string' ? error as Error : null;
-    this.errors.push({
+    const report: FrameError = {
       kind,
       webviewId,
       message: err ? err.message : String(error),
       stack: typeof err?.stack === 'string' ? err.stack : undefined
-    });
+    };
+    this.recordError(report);
+  }
+
+  get forwardConsole(): ForwardConsole {
+    return this.forwarder.mode;
+  }
+
+  reportConsole(kind: FrameKind, webviewId: number, level: ConsoleLevel, args: unknown[]) {
+    const caught = level === 'error' ? caughtError(args[0]) : null;
+    if (caught) this.recordError({ kind, webviewId, ...caught });
+    else this.forwarder.console(kind, webviewId, level, args);
+  }
+
+  private recordError(report: FrameError) {
+    if (this.recentErrors.isRepeated(report.kind, report.webviewId, report.message, report.stack)) return;
+    this.errors.push(report);
+    this.forwarder.error(report.kind, report.webviewId, report.message, report.stack);
   }
 
   /**
-   * 业务代码只运行在逻辑层，所以只记逻辑层调用、名字在 wx 上的 API，每个 API 一次。
+   * 只记录逻辑层的公开 wx API 和 FileSystemManager 方法，每个原生接口一次。
    * 其余是基础库内部调用的原生接口（如 getPermissionBytes），业务既没调用也 mock 不了
    */
   private reportUnimplemented({ api, from }: ApiContext) {
+    if (from !== 'service') return;
     const wx = (this.serviceWindow() as any)?.wx;
-    if (from !== 'service' || typeof wx?.[api] !== 'function') return;
+    const fileMethod = api.startsWith('fs_') ? api.slice(3) : api;
+    const isFileApi = typeof wx?.getFileSystemManager?.()[fileMethod] === 'function';
+    if (typeof wx?.[api] !== 'function' && !isFileApi) return;
     if (this.errors.some(error => error.api === api)) return;
-    this.errors.push({
-      kind: 'service',
-      webviewId: 0,
-      api,
-      message: `wx.${api} 尚未实现，返回了默认成功。可以用 mock 覆盖，启动阶段就调用的要在 setup 里 mock`
-    });
+    const name = isFileApi ? `wx.getFileSystemManager().${fileMethod}` : `wx.${api}`;
+    const message = `${name} 尚未实现，返回了默认成功。可以用 mock 覆盖，启动阶段就调用的要在 setup 里 mock`;
+    this.errors.push({ kind: 'service', webviewId: 0, api, message });
+    this.forwarder.warn(message);
+  }
+
+  /**
+   * 逻辑层在首页创建前出错时的提示：onLaunch、启动阶段的接口回调里读 getCurrentPages()[0] 是常见原因，
+   * 而报错本身只说读不到某个属性。被拦截的请求立即返回，比真机更容易在首页创建前执行回调
+   */
+  private launchHints(kind: FrameKind): string[] {
+    return kind === 'service' && !this.currentPage() ? ['出错时首页还没创建，getCurrentPages() 返回的是空数组'] : [];
   }
 
   // ---------------------------------------------------------------------------
@@ -334,19 +451,25 @@ export class Host implements HostApi {
 
   private closePage(page: PageView, options = { keepTab: true }) {
     if (options.keepTab && this.tabPaths.has(page.path) && this.tabPages.get(page.path) === page) {
-      page.hide();
+      this.hidePage(page);
       return;
     }
     if (this.tabPages.get(page.path) === page) this.tabPages.delete(page.path);
     this.pages.delete(page.id);
+    this.webViewWindows?.pageDestroyed(page.id);
     page.destroy();
+    // 页面直接关掉时渲染层不一定发 canvasRemoved
+    for (const [canvasNumber, record] of this.canvases) {
+      if (record.webviewId === page.id) this.canvases.delete(canvasNumber);
+    }
   }
 
   private activate(page: PageView, openType: OpenType) {
     for (const other of this.pages.values()) {
-      if (other !== page) other.hide();
+      if (other !== page) this.hidePage(other);
     }
     page.show();
+    this.webViewWindows?.pageShown(page.id);
 
     page.navigation = { ...page.navigation, showBack: this.stack.size > 1 };
     this.shell.setNavigation(page.navigation);
@@ -361,6 +484,16 @@ export class Host implements HostApi {
       if (this.currentPage() === page) this.emitToService('onAppRouteDone', data, page.id);
     }, ROUTE_DONE_DELAY);
     this.routeListeners.forEach(listener => listener(page, openType));
+  }
+
+  private hidePage(page: PageView) {
+    page.hide();
+    this.webViewWindows?.pageHidden(page.id);
+  }
+
+  /** 页面里设置过 src 的 web-view，按创建顺序 */
+  webViewsOf(page: PageView): WebViewInfo[] {
+    return this.webViewWindows ? this.webViewWindows.list(page.id) : iframeWebViews(page.win?.document);
   }
 
   /** 宿主地址栏同步为当前页面，刷新后可回到同一页面 */
@@ -435,6 +568,14 @@ export class Host implements HostApi {
     this.shell.setNavigation(page.navigation);
   }
 
+  /** tabBar 显隐改变 tab 页窗口是否贴着屏幕底边，已打开的 tab 页要同步底部安全区 */
+  private setTabBarHidden(hidden: boolean) {
+    this.shell.setTabBarHidden(hidden);
+    for (const page of this.tabPages.values()) {
+      page.setSafeAreaInsets(this.shell.safeAreaInsetsFor(page.path, page.navigation));
+    }
+  }
+
   private registerApis() {
     const routeApi = (handler: (args: any) => Promise<ApiResult>) =>
       (args: any) => this.enqueueRoute(() => handler(args));
@@ -448,6 +589,7 @@ export class Host implements HostApi {
       ...createStorageApis(this.storage),
       ...createSubpackageApis({
         subPackages: this.info.wxConfig.subPackages || [],
+        workers: this.info.wxConfig.workers,
         emit: (event, data) => this.emitToService(event, data)
       }),
       ...createSavedFileApis(this.storage),
@@ -459,15 +601,22 @@ export class Host implements HostApi {
         screenTop: () => this.shell.screenTop()
       }),
       ...createNetworkApis({
+        socketProxy: this.info.socketProxy,
+        defaultSocketTimeout: () => this.info.wxConfig.networkTimeout?.connectSocket || 60000,
         emit: (event, data) => this.emitToService(event, data),
         defaultTimeout: () => this.info.wxConfig.networkTimeout?.request || 60000,
         routes: this.routes,
-        onRequest: request => this.requests.add(request)
+        onRequest: request => this.requests.add(request),
+        onMocked: (request, response, signal) => this.mockMirror?.show(request, response, signal)
       }),
       ...createAudioApis({ emit: (event, data) => this.emitToService(event, data) }),
       ...createMapApis({ registry: this.api, operations: this.mapOperations }),
       ...createLibFileApis({ windowOf: webviewId => this.pages.get(webviewId)?.win }),
-      ...createUiApis({ shell: this.shell, updateNavigation: state => this.updateNavigation(state) }),
+      ...createUiApis({
+        shell: this.shell,
+        updateNavigation: state => this.updateNavigation(state),
+        setTabBarHidden: hidden => this.setTabBarHidden(hidden)
+      }),
       ...createMediaApis({
         showActionSheet: options => this.shell.showActionSheet(options),
         chooseFiles,
@@ -481,11 +630,12 @@ export class Host implements HostApi {
       }),
       ...createWebViewApis({
         documentOf: webviewId => this.pages.get(webviewId)?.win?.document,
-        emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data)
+        emitToWebview: (webviewId, event, data) => this.emitToWebview(webviewId, event, data),
+        windows: this.webViewWindows
       }),
       ...createMiscApis(this.info.appid, {
-        realLogin: this.info.realLogin,
-        onRealLoginFail: (api, reason) => this.shell.showNotice(`wx.${api} 真实登录失败`, reason)
+        devtoolsLogin: this.info.devtoolsLogin,
+        onDevtoolsLoginFail: (api, reason) => this.shell.showNotice(`wx.${api} 借用开发者工具登录态失败`, reason)
       })
     });
   }
@@ -510,6 +660,15 @@ function withDrawableImages(message: any): unknown {
       })
     }
   };
+}
+
+/** 消息里带了的位置字段 */
+function boxOf(data: CanvasMessage): Partial<CanvasBox> {
+  const box: Partial<CanvasBox> = {};
+  for (const key of ['top', 'left', 'width', 'height'] as const) {
+    if (data[key] !== undefined) box[key] = data[key];
+  }
+  return box;
 }
 
 function stripHtml(path: string): string {

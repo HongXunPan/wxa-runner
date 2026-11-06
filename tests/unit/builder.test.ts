@@ -107,6 +107,10 @@ describe('增量构建标记', () => {
     expect(builder.invalidate(['images/logo.png'])).toBe(false);
     expect(builder.invalidate(['pages/a/a.js'])).toBe(true);
     expect(builder.invalidate(['pages/a/a.wxss'])).toBe(true);
+    expect(builder.invalidate(['pages/a/a.less'])).toBe(true);
+    expect(builder.invalidate(['styles/theme.scss'])).toBe(true);
+    // less / sass 可以引用 .css
+    expect(builder.invalidate(['styles/theme.css'])).toBe(true);
   });
 });
 
@@ -131,6 +135,31 @@ describe.skipIf(!hasToolchain())('完整构建', () => {
     expect(result.pageFrame).toContain('__wxAppCode__["pages/a/a.wxss"] = setCssToHead');
     expect(result.pageFrame).toContain('color: #333');
     expect(result.wxConfig.entryPagePath).toBe('pages/a/a.html');
+  });
+
+  it.each(['workers', 'workers/', './workers', { path: 'workers', isSubpackage: true }])
+  ('workers 目录下的 JS 不进逻辑层，单独作为 Worker 的模块：%j', async workers => {
+    const root = createProject({
+      'app.json': { pages: ['pages/a/a'], workers },
+      'app.js': 'App({})',
+      'pages/a/a.json': {},
+      'pages/a/a.wxml': '<view>a</view>',
+      'pages/a/a.js': 'Page({})',
+      'workers/index.js': "require('./utils/math.js');",
+      'workers/utils/math.js': 'module.exports = {};'
+    });
+    const builder = new AppBuilder(new MiniProgram(root));
+    const result = await builder.build();
+
+    expect(result.modules).toEqual(['app.js', 'pages/a/a.js']);
+    expect(result.serviceBootstrap).not.toContain('require("workers/');
+    expect(result.workerModules).toEqual(['workers/index.js', 'workers/utils/math.js']);
+    expect(builder.getModuleScript('workers/utils/math.js')).toMatch(/^define\("workers\/utils\/math\.js", function\(/);
+  });
+
+  it('没有配置 workers 时没有 Worker 的模块', async () => {
+    const result = await new AppBuilder(new MiniProgram(demoProject())).build();
+    expect(result.workerModules).toEqual([]);
   });
 
   it('文件未变化时复用上次结果，变化后版本号递增', async () => {
@@ -167,6 +196,21 @@ describe.skipIf(!hasToolchain())('完整构建', () => {
     // 进行中的那次构建可能已经读过旧文件，必须另起一次
     expect(latest.version).toBeGreaterThan(stale.version);
     expect(latest.pageFrame).toContain('second');
+  });
+
+  it('进行中的构建失败、期间文件又有变化时，重新构建而不是报这次过期的错误', async () => {
+    const root = demoProject();
+    const builder = new AppBuilder(new MiniProgram(root));
+    // 构建工具还没写完产物
+    fs.writeFileSync(path.join(root, 'app.json'), '{"pages": [');
+    const running = builder.build();
+
+    fs.writeFileSync(path.join(root, 'app.json'), JSON.stringify({ pages: ['pages/a/a', 'pages/b/b'] }));
+    builder.invalidate(['app.json']);
+    const latest = builder.build();
+
+    await expect(running).rejects.toThrow(/app\.json/);
+    await expect(latest).resolves.toMatchObject({ pages: ['pages/a/a', 'pages/b/b'] });
   });
 
   it('热更新用的渲染层模板只含模板，不含样式（重复执行样式代码会累积 rpx 重算回调）', async () => {
@@ -206,5 +250,79 @@ describe.skipIf(!hasToolchain())('完整构建', () => {
     fs.writeFileSync(path.join(root, 'pages/b/b.wxml'), '<view>ok</view>');
     builder.invalidate(['pages/b/b.wxml']);
     await expect(builder.build()).resolves.toMatchObject({ pages: ['pages/a/a', 'pages/b/b'] });
+  });
+});
+
+describe.skipIf(!hasToolchain())('完整构建：less 编译插件', () => {
+  /** issue #85 的项目结构：开启 less 插件，有的页面只有 .less，有的 .wxss 只是一行注释的空壳 */
+  function lessProject() {
+    return createProject({
+      'project.config.json': { setting: { useCompilerPlugins: ['less'] } },
+      'app.json': { pages: ['pages/only-less/index', 'pages/stub/index'] },
+      'app.js': 'App({})',
+      'app.less': '@brand: #07c160;\npage { color: @brand; }',
+      'pages/only-less/index.json': {},
+      'pages/only-less/index.wxml': '<view class="page-container">a</view>',
+      'pages/only-less/index.less': 'page { padding: 20rpx } .page-container { padding: 30rpx; .title { color: @brand; } }',
+      'pages/stub/index.json': {},
+      'pages/stub/index.wxml': '<view>b</view>',
+      'pages/stub/index.wxss': '/* pages/stub/index.wxss */',
+      'pages/stub/index.less': '.from-less { margin: 10rpx; }'
+    });
+  }
+
+  it('只有 .less 的页面和 .wxss 是空壳的页面，样式都注册进渲染层', async () => {
+    const result = await new AppBuilder(new MiniProgram(lessProject())).build();
+    expect(result.pageStyles).toContain('__wxAppCode__["pages/only-less/index.wxss"] = setCssToHead');
+    expect(result.pageStyles).toContain('page-container');
+    expect(result.pageStyles).toContain('from-less');
+    // app.less 编译成 app.wxss，进公共样式
+    expect(result.pageStyles).toContain('#07c160');
+  });
+
+  it('修改 .less 后重新编译，样式随之更新', async () => {
+    const root = lessProject();
+    const builder = new AppBuilder(new MiniProgram(root));
+    await builder.build();
+
+    fs.writeFileSync(path.join(root, 'pages/only-less/index.less'), '.changed-in-less { color: red; }');
+    expect(builder.invalidate(['pages/only-less/index.less'])).toBe(true);
+    expect((await builder.build()).pageStyles).toContain('changed-in-less');
+  });
+
+  it('less 引用的 .css 修改后重新编译，样式随之更新', async () => {
+    const root = lessProject();
+    fs.mkdirSync(path.join(root, 'styles'));
+    fs.writeFileSync(path.join(root, 'styles/theme.css'), '.theme-old { color: red; }');
+    fs.writeFileSync(path.join(root, 'pages/only-less/index.less'), "@import (less) '../../styles/theme.css';");
+    const builder = new AppBuilder(new MiniProgram(root));
+    expect((await builder.build()).pageStyles).toContain('theme-old');
+
+    fs.writeFileSync(path.join(root, 'styles/theme.css'), '.theme-new { color: red; }');
+    expect(builder.invalidate(['styles/theme.css'])).toBe(true);
+    expect((await builder.build()).pageStyles).toContain('theme-new');
+  });
+
+  it('开发中在 project.config.json 里关掉 less 插件，重新编译后改用 .wxss，不用重启', async () => {
+    const root = lessProject();
+    const builder = new AppBuilder(new MiniProgram(root));
+    expect((await builder.build()).pageStyles).toContain('from-less');
+
+    fs.writeFileSync(path.join(root, 'project.config.json'), JSON.stringify({ setting: { useCompilerPlugins: false } }));
+    builder.invalidate(['project.config.json']);
+    const result = await builder.build();
+    expect(result.pageStyles).not.toContain('from-less');
+    expect(result.pageStyles).not.toContain('page-container');
+  });
+
+  it('less 编译失败时构建失败并指出文件，修复后可以重新构建', async () => {
+    const root = lessProject();
+    const builder = new AppBuilder(new MiniProgram(root));
+    fs.writeFileSync(path.join(root, 'pages/only-less/index.less'), '.x { color: @missing; }');
+    await expect(builder.build()).rejects.toThrow(/pages\/only-less\/index\.less 编译失败/);
+
+    fs.writeFileSync(path.join(root, 'pages/only-less/index.less'), '.x { color: red; }');
+    builder.invalidate(['pages/only-less/index.less']);
+    await expect(builder.build()).resolves.toMatchObject({ pages: ['pages/only-less/index', 'pages/stub/index'] });
   });
 });

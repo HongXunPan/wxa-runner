@@ -7,6 +7,9 @@
 
 export type FrameKind = 'service' | 'webview';
 
+/** 把浏览器里的报错转发到开发服务器的终端：errors 只转发报错，all 再加上 console.warn / console.error，false 不转发 */
+export type ForwardConsole = 'errors' | 'all' | false;
+
 /** iframe 内桥对象上供宿主回调的入口 */
 export interface FrameBridge {
   /** 系统事件，对应基础库的 WeixinJSBridge.on */
@@ -26,6 +29,11 @@ export interface HostApi {
   publish(kind: FrameKind, win: Window, event: string, data: unknown, webviewIds?: number[]): void;
   frameLoaded(kind: FrameKind, webviewId: number): void;
   reportError(kind: FrameKind, webviewId: number, error: unknown): void;
+  /** iframe 里的 console.error 和 console.warn。console.error 总会报来，基础库捕获的错误要记入 errors()；console.warn 只在转发全部时报来 */
+  reportConsole(kind: FrameKind, webviewId: number, level: 'warn' | 'error', args: unknown[]): void;
+  readonly forwardConsole: ForwardConsole;
+  /** 把逻辑层建的 2d、webgl 画布放进页面里对应的 wx-canvas；认不出是哪个画布时（如离屏画布）留在原处。type 是 getContext 的类型 */
+  placeCanvas(canvas: HTMLCanvasElement, type: string): void;
   device: DeviceProfile;
 }
 
@@ -49,8 +57,35 @@ export interface AppInfo {
   wxConfig: Record<string, any>;
   pages: string[];
   device: DeviceProfile;
-  realLogin?: boolean;
+  /** 开启了 --devtools-login */
+  devtoolsLogin?: boolean;
+  /** 开发服务器提供 WebSocket 请求头转发；静态查看器未提供时保持直连 */
+  socketProxy?: boolean;
+  /** false 表示没有开发服务器，不建立热更新和报错转发连接 */
+  liveReload?: boolean;
+  /** 使用查看器已经注册的 Service Worker，宿主不能用 sw.js 替换它 */
+  externalServiceWorker?: boolean;
   buildError?: string;
   /** 配置了 setup 文件时存在；error 是 setup 的编译错误 */
   setup?: { env: Record<string, string>; error?: string };
+  /** 没有时不转发 */
+  forwardConsole?: ForwardConsole;
+  /** web-view 的网页在新窗口打开，见 api/webView.ts 的 WebViewWindows */
+  webViewWindow?: boolean;
 }
+
+/** 逻辑层发给 Worker 的消息（runtime/workers.ts → runtime/worker.ts） */
+export type ToWorkerMessage =
+  /** 逻辑层基础库发来的消息，交给 Worker 基础库 */
+  | { type: 'message'; data: unknown }
+  /** Worker 里调用原生接口的结果 */
+  | { type: 'callback'; callbackId: number; result: unknown };
+
+/** Worker 发给逻辑层的消息 */
+export type FromWorkerMessage =
+  /** Worker 基础库发出的消息，交给逻辑层基础库 */
+  | { type: 'message'; data: unknown }
+  /** Worker 里调用原生接口 */
+  | { type: 'invoke'; api: string; args: unknown; callbackId: number }
+  /** Worker 基础库捕获的、业务没有处理的异常 */
+  | { type: 'error'; message: string; stack?: string };

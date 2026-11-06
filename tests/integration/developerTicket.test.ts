@@ -1,5 +1,5 @@
 /**
- * 真实登录用的开发者 ticket 从哪来
+ * --devtools-login 用的开发者 ticket 从哪来
  *
  * 新版开发者工具（Electron）把登录态加密存放，磁盘上只剩旧版留下的、早已作废的 ticket：
  * 要用开发者工具的命令行为项目开启自动化接口，再通过自动化协议向正在运行的开发者工具要当前的 ticket。
@@ -21,7 +21,7 @@ import { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TICKET_ENV } from '../../packages/extractor/src/devtools';
 import { developerTicketSource } from '../../packages/core/src/server/developerTicket';
-import { realLoginRouter } from '../../packages/core/src/server/realLogin';
+import { devtoolsLoginRouter } from '../../packages/core/src/server/devtoolsLogin';
 import { createProject } from '../helpers';
 
 const HOUR = 3600_000;
@@ -83,15 +83,27 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map(cleanup => cleanup()));
 });
 
-/** 本机装的开发者工具：electron 是新版，nw 是旧版（package.nw）。两种都带命令行 */
+/**
+ * 本机装的开发者工具：electron 是新版，nw 是旧版（package.nw）。两种都带命令行，按本机平台的安装布局放：
+ * macOS 是 Contents/MacOS/cli，Windows 是安装目录下经 cmd 运行的 cli.bat
+ */
 function installDevtools(kind: 'electron' | 'nw') {
-  const root = createProject({
-    [kind === 'electron' ? 'Contents/Resources/app.asar.unpacked/package.json' : 'Contents/Resources/package.nw/package.json']: {},
-    'Contents/MacOS/cli': CLI_SCRIPT,
-    'Contents/MacOS/reply.json': { stdout: '', exitCode: 0 }
-  });
-  const dir = path.join(root, 'Contents/MacOS');
-  fs.chmodSync(path.join(dir, 'cli'), 0o755);
+  const windows = process.platform === 'win32';
+  const root = createProject(
+    windows
+      ? {
+          [kind === 'electron' ? 'resources/app.asar.unpacked/package.json' : 'code/package.nw/package.json']: {},
+          'cli.bat': `@"${process.execPath}" "%~dp0cli.js" %*\r\n`,
+          'cli.js': CLI_SCRIPT
+        }
+      : {
+          [kind === 'electron' ? 'Contents/Resources/app.asar.unpacked/package.json' : 'Contents/Resources/package.nw/package.json']: {},
+          'Contents/MacOS/cli': CLI_SCRIPT
+        }
+  );
+  const dir = windows ? root : path.join(root, 'Contents/MacOS');
+  fs.writeFileSync(path.join(dir, 'reply.json'), JSON.stringify({ stdout: '', exitCode: 0 }));
+  if (!windows) fs.chmodSync(path.join(dir, 'cli'), 0o755);
   vi.stubEnv('WXA_DEVTOOLS_PATH', root);
 
   return {
@@ -113,16 +125,21 @@ function installDevtools(kind: 'electron' | 'nw') {
   };
 }
 
+/** 用户主目录换成 dir；Windows 上开发者工具的用户数据在 %LOCALAPPDATA% 下，也一并换到 dir 里 */
 function useHome(dir: string) {
   vi.spyOn(os, 'homedir').mockReturnValue(dir);
+  vi.stubEnv('LOCALAPPDATA', path.join(dir, 'AppData/Local'));
 }
 
 /** 用户数据目录里一个账号的登录数据，是旧版开发者工具以明文写下的 */
 function homeWithSavedTicket(newticket: string): string {
-  const profile = path.join(
-    process.platform === 'darwin' ? 'Library/Application Support/微信开发者工具' : '.config/wechat_devtools',
-    '50a7d9210159a32f006158795f893857/WeappLocalData'
-  );
+  const userData =
+    process.platform === 'darwin'
+      ? 'Library/Application Support/微信开发者工具'
+      : process.platform === 'win32'
+        ? 'AppData/Local/微信开发者工具/User Data'
+        : '.config/wechat_devtools';
+  const profile = path.join(userData, '50a7d9210159a32f006158795f893857/WeappLocalData');
   return createProject({
     [`${profile}/hash_key_map_2.json`]: { a1b2: 'reduxPersist:user' },
     [`${profile}/localstorage_a1b2.json`]: { currentUser: { newticket, ticketExpiredTime: Date.now() + HOUR, loginStatus: 'SUCCESS' } }
@@ -168,10 +185,10 @@ function stubWechat(): string[] {
   return received;
 }
 
-/** 按开发服务器的方式挂上真实登录接口，返回调用 wx.login 的函数 */
-async function serveRealLogin(projectPath: string) {
+/** 按开发服务器的方式挂上开发者工具登录态的接口，返回调用 wx.login 的函数 */
+async function serveDevtoolsLogin(projectPath: string) {
   const app = express();
-  app.use('/__wxa__/api', realLoginRouter('wx-app', developerTicketSource(projectPath, SILENT)));
+  app.use('/__wxa__/api', devtoolsLoginRouter('wx-app', developerTicketSource(projectPath, SILENT)));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   cleanups.push(() => new Promise(resolve => server.close(resolve)));
@@ -196,7 +213,7 @@ describe('新版开发者工具（Electron）', () => {
     const devtools = installDevtools('electron');
     devtools.reply(agentStarted((await startAutomator(() => currentTicket('live'))).port));
     const project = createProject({});
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     const wechat = stubWechat();
 
     // When
@@ -213,7 +230,7 @@ describe('新版开发者工具（Electron）', () => {
     let ticket = 'before';
     devtools.reply(agentStarted((await startAutomator(() => currentTicket(ticket))).port));
     const project = createProject({});
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     const wechat = stubWechat();
 
     await login();
@@ -227,7 +244,7 @@ describe('新版开发者工具（Electron）', () => {
   it('自动化接口广播了不是对象的消息时，开发者照样能登录', async () => {
     const devtools = installDevtools('electron');
     devtools.reply(agentStarted((await startAutomator(() => currentTicket('t'), ['null', '42', '"text"', 'not json'])).port));
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     const wechat = stubWechat();
 
     expect((await login()).status).toBe(200);
@@ -238,7 +255,7 @@ describe('新版开发者工具（Electron）', () => {
     const devtools = installDevtools('electron');
     devtools.reply(agentStarted((await startAutomator(() => currentTicket('t'))).port));
     const project = createProject({});
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     stubWechat();
 
     const results = await Promise.all([login(), login(), login()]);
@@ -253,7 +270,7 @@ describe('新版开发者工具（Electron）', () => {
     const first = await startAutomator(() => currentTicket('first'));
     devtools.reply(agentStarted(first.port));
     const project = createProject({});
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     const wechat = stubWechat();
     await login();
     await first.close();
@@ -274,7 +291,7 @@ describe('新版开发者工具（Electron）', () => {
     const automator = await startAutomator(() => (devtools.automatedProjects().length < 2 ? null : currentTicket('t')));
     devtools.reply(agentStarted(automator.port));
     const project = createProject({});
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     const wechat = stubWechat();
 
     expect((await login()).status).toBe(200);
@@ -291,7 +308,7 @@ describe('新版开发者工具（Electron）', () => {
       ++requests <= 2 ? automatorError(`GUI project window is not found for project ${project}`) : currentTicket('t')
     );
     devtools.reply(agentStarted(automator.port));
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     const wechat = stubWechat();
 
     expect((await login()).status).toBe(200);
@@ -303,7 +320,7 @@ describe('新版开发者工具（Electron）', () => {
     const project = createProject({});
     const automator = await startAutomator(() => automatorError(`GUI project window is not found for project ${project}`));
     devtools.reply(agentStarted(automator.port));
-    const login = await serveRealLogin(project);
+    const login = await serveDevtoolsLogin(project);
     const wechat = stubWechat();
 
     const { status, body } = await login();
@@ -319,7 +336,7 @@ describe('新版开发者工具（Electron）', () => {
     devtools.reply(
       agentStarted((await startAutomator(() => automatorError('ticket is not allow to get, navigate to security settings and turn it on'))).port)
     );
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     const wechat = stubWechat();
 
     const { status, body } = await login();
@@ -333,7 +350,7 @@ describe('新版开发者工具（Electron）', () => {
   it('开发者工具没登录时提示开发者先登录', async () => {
     const devtools = installDevtools('electron');
     devtools.reply(agentStarted((await startAutomator(() => automatorError('need to login'))).port));
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     stubWechat();
 
     expect((await login()).body.error).toContain('微信开发者工具未登录');
@@ -342,7 +359,7 @@ describe('新版开发者工具（Electron）', () => {
   it('服务端口关着时提示开发者去开启，开启后不用重启就能登录', async () => {
     const devtools = installDevtools('electron');
     devtools.reply(SERVICE_PORT_DISABLED, 246);
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     const wechat = stubWechat();
 
     const { status, body } = await login();
@@ -359,7 +376,7 @@ describe('新版开发者工具（Electron）', () => {
   it('开发者工具命令行出错时，开发者看到命令行给出的原因', async () => {
     const devtools = installDevtools('electron');
     devtools.reply(PROJECT_NOT_FOUND);
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     stubWechat();
 
     const { status, body } = await login();
@@ -390,7 +407,7 @@ describe('其它 ticket 来源', () => {
   it(`设置了环境变量 ${TICKET_ENV} 时用它，不让开发者工具开启自动化`, async () => {
     vi.stubEnv(TICKET_ENV, 'from-env');
     const devtools = installDevtools('electron');
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     const wechat = stubWechat();
 
     expect((await login()).status).toBe(200);
@@ -401,7 +418,7 @@ describe('其它 ticket 来源', () => {
   it('旧版开发者工具（package.nw）照旧用磁盘上保存的 ticket', async () => {
     useHome(homeWithSavedTicket('saved-on-disk'));
     const devtools = installDevtools('nw');
-    const login = await serveRealLogin(createProject({}));
+    const login = await serveDevtoolsLogin(createProject({}));
     const wechat = stubWechat();
 
     expect((await login()).status).toBe(200);

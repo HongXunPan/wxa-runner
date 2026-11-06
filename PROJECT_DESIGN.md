@@ -87,22 +87,30 @@ wxa-runner/
 │   │       ├── project/
 │   │       │   ├── MiniProgram.ts     # 读取 app.json / 页面与组件 json、收集组件、列文件
 │   │       │   ├── AppBuilder.ts      # 生成逻辑层 / 渲染层产物，按类型增量
+│   │       │   ├── WxmlMirror.ts      # wxmlTransform 的镜像目录（wcc 从这里读转换后的 wxml）
 │   │       │   └── wxConfig.ts        # 生成 __wxConfig
 │   │       ├── server/
 │   │       │   ├── DevServer.ts       # HTTP 路由、WebSocket、文件变化后重新编译并通知浏览器
+│   │       │   ├── extensions.ts      # 开发服务器扩展：合并开发工具提供的扩展点
 │   │       │   ├── watcher.ts         # 文件监听：合并一次保存的改动，内容没变的不算
 │   │       │   ├── hmr.ts             # 改动能否热更新
-│   │       │   ├── html.ts            # 宿主 / 逻辑层 / 渲染层 HTML
+│   │       │   ├── html.ts            # 宿主 / 逻辑层 / 渲染层 HTML，Worker 的入口脚本
 │   │       │   ├── ignoreList.ts      # 基础库脚本加入 DevTools 忽略列表的 source map
 │   │       │   ├── proxy.ts           # wx.request 等的转发代理
 │   │       │   ├── setup.ts           # 查找、打包 setup 文件，收集 WXA_ 环境变量
-│   │       │   ├── realLogin.ts       # --real-login 的真实登录接口
-│   │       │   └── developerTicket.ts # 真实登录的 ticket：新版开发者工具经自动化接口实时获取
-│   │       └── runtime/               # 浏览器端（打包为 dist/runtime/host.js、frame.js）
+│   │       │   ├── devtoolsLogin.ts   # --devtools-login 的接口：登录、手机号，服务市场和插件的请求转发
+│   │       │   ├── wechatDev.ts       # 借开发者登录态访问微信后台：ticket、超时、错误提示统一处理
+│   │       │   ├── plugins.ts         # 插件：借开发者登录态下载插件代码，插件页面并入小程序
+│   │       │   └── developerTicket.ts # --devtools-login 的 ticket：新版开发者工具经自动化接口实时获取
+│   │       └── runtime/               # 浏览器端（打包为 dist/runtime/host.js、frame.js、worker.js、sw.js）
 │   │           ├── frame.ts           # 注入 iframe：全局变量、WeixinJSBridge、设备尺寸、触摸模拟
+│   │           ├── networkPanel.ts    # 请求在 Network 面板里的地址（/__wxa__/proxy/…、/__wxa__/mock/…），宿主、Service Worker、开发服务器共用
+│   │           ├── sw.ts              # Service Worker：返回被拦截请求的响应，让它们也显示在 Network 面板里
 │   │           ├── context.ts         # 3.7.1 起的基础库：模拟原生 WeixinJSContext，在逻辑层里创建子上下文
 │   │           ├── sdkStubs.ts        # 伴生 SDK（广告等）的占位
 │   │           ├── syncScript.ts      # 同步执行脚本（loadLibFiles）
+│   │           ├── workers.ts         # 逻辑层的原生 WeixinWorker：创建 Worker、收发消息
+│   │           ├── worker.ts          # Worker 里的原生接口
 │   │           └── host/
 │   │               ├── index.ts       # 宿主入口：读取构建信息、执行 setup、启动、处理热更新和整页刷新
 │   │               ├── Host.ts        # 宿主：消息分发、路由、页面栈
@@ -127,7 +135,7 @@ wxa-runner/
 │           └── server.ts              # 开发服务器参数，路径相对 Playwright 配置文件
 │
 ├── docs/                              # 使用文档，同时是 VitePress 文档站点
-├── examples/                          # showcase（覆盖主要功能）、hello-world、tabbar
+├── examples/                          # showcase（覆盖主要功能）、hello-world、custom-tabbar、subpackages、worker
 └── tests/
     ├── unit/                          # 解包、编译、项目解析、构建、文件监听、运行时纯逻辑、原生 API
     ├── integration/                   # DevServer 路由、网络代理
@@ -245,8 +253,31 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 }));
 ```
 
+**Worker 产物**：`workers` 目录下的 JS 不进逻辑层，同样每个文件一个 `define` 脚本（`workerModules`），由 Worker 的入口加载，见下文「Worker」。
+
 逻辑层的模板（`service-templates.js`）、渲染层的模板（`page-templates.js`）和样式（`page-styles.js`）也能单独取到，热更新时分别下发。
 样式和模板里的 `env(safe-area-inset-*)` 改写成 CSS 变量（`rewriteSafeAreaInsets`）。
+
+### 插件（server/plugins.ts）
+
+插件代码不在项目里。同开发者工具：开发服务器带着开发者 ticket 向微信下载 `app.json` 声明的插件（`wxa-dev/getplugincode`，
+body 是插件 appid 和版本），只放在内存里，同一个插件版本下载一次。要用开发者的登录态，所以只在 `--devtools-login` 时下载；
+下载不了时在终端说明原因，小程序自己的页面照常可用。
+
+下载到的是 `.wxvpkg` 格式（同基础库）的编译产物，wxa-runner 不用再编译：
+
+| 文件 | 内容 | 怎么用 |
+| --- | --- | --- |
+| `plugin.json` | 插件页面表（如 `__plugin__/<插件 appid>/pages/index/index`）和每个页面的 window 配置 | 并入 app-info 的 `pages` 和 `__wxConfig.page` |
+| `appservice.js` | `definePlugin(...)` 包着插件的 `$gwx_<插件 appid>`、`__wxAppCode__`、各模块的 `define`，最后自己 `requirePlugin` 初始化 | 逻辑层在业务代码之前加载 |
+| `pageframe.js` | 插件的模板函数和样式（自带 `setCssToHead`） | 插件页面的渲染层加载，不加载小程序的 page-frame.js |
+| `pages/x/x.html` | 注入样式、取模板、派发 `generateFuncReady` 的片段 | 原样放进插件页面的 body |
+| `static/…` | 图片等 | 基础库把插件里的相对路径和 `/` 开头的路径都改写成站点根下的 `/__plugin__/<插件 appid>/…` |
+
+跳转由基础库完成：`plugin://别名/页面名` 解析成 `__plugin__/<插件 appid>/pages/…` 后调原生路由，宿主当普通页面打开。
+基础库启动时还会调原生的 `verifyPlugin`（插件能访问的域名和签名）和 `batchGetContact`（插件信息），插件里的网络请求要等拿到这两样才发出，
+开发服务器同开发者工具转发给 `wxa-dev-logic/verifyplugin`、`batchgetcontact`。插件的请求和基础库自己的请求一样带 `__skipDomainCheck__`，
+但多一个签名头 `X-WECHAT-HOSTSIGN`，宿主据此当作小程序的请求发出（`api/network.ts`）。
 
 ---
 
@@ -259,6 +290,7 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 ├── iframe /__wxa__/appservice.html          逻辑层（隐藏，name 为 wxa-appservice）
 │     frame.js → WAService.js → 业务模块 → service-bootstrap.js
 │     （3.7.1 起：WAServiceMainContext.js，业务代码在子上下文 subcontext.html 里执行）
+│     └── Web Worker /__wxa__/worker.js?id=1     wx.createWorker 创建的 Worker
 ├── iframe /__wxa__/webview/pages/a/a.html?id=1   渲染层（每个页面一个）
 │     frame.js → WAWebview.js → page-frame.js → generateFuncReady
 └── iframe /__wxa__/webview/pages/b/b.html?id=2
@@ -270,7 +302,7 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 
 必须在基础库之前执行：
 
-1. **预置全局变量**：`__wxAppCode__`、`__wxRoute`、`WeixinWorker`、`__global` 等，基础库依赖它们
+1. **预置全局变量**：`__wxAppCode__`、`__wxRoute`、`__global` 等，基础库依赖它们；`WeixinWorker` 是 Worker 的原生接口，见下文「Worker」
 2. **`__passWAServiceGlobal__(globals)`**：部分版本的基础库初始化完成后通过它交出 `App` / `Page` / `Component` /
    `wx` / `define` / `require`（3.7.0 直接写到 `globalThis`）
 3. **WeixinJSBridge**：基础库检测到已存在的全局 `WeixinJSBridge` 时直接使用它
@@ -280,7 +312,9 @@ document.dispatchEvent(new CustomEvent("generateFuncReady", {
 5. **鼠标 → 触摸**：页面只应收到触摸事件。基础库在部分版本/平台上会自己把鼠标或 pointer 事件转换为触摸，
    和我们的转换叠加会触发两次 tap，所以在 window 捕获阶段最先拦下鼠标类事件再统一转换。
    另外基础库在元素滚动后 50ms 内会取消 tap，自动化测试的「滚动到元素 → 立刻点击」会因此失效，
-   转换时先等两帧让 scroll 事件派发完，必要时顺延
+   转换时先等两帧让 scroll 事件派发完，必要时顺延。
+   swiper 等组件只看第一个 touchmove 判断手势方向，鼠标刚拖动时的 1px 抖动会让横向拖动被当成竖向，
+   所以按下后移出 8px 之前的 mousemove 不转发（小于基础库取消 tap 的 10px）；没移出就松手时补一个 touchmove，小幅拖动不丢
 6. **内置组件样式提前注入**：基础库在文档没加载完时把内置组件样式（`wx-view` 的 display、`wx-canvas` 的默认尺寸等）
    推迟到 `window.onload` 注入。开发者工具在文档加载完后才注入基础库，那边是立即注入；这里基础库随页面同步加载，
    首屏渲染早于 onload，canvas 这类挂载时测量尺寸的组件会量错。所以加载完成前赋给 `window.onload` 的回调改为立即执行
@@ -330,16 +364,16 @@ navigateTo(url)
 | network | `createRequestTask` 同步返回 taskId，结果通过 `onRequestTaskStateChange` 依次推送 `headersReceived`、`success` / `fail`；下载、上传、WebSocket 同理。`success` 的 data 按 `responseType` 是文本或 ArrayBuffer，被拦截的请求也一样；WebSocket 的二进制消息是 ArrayBuffer。基础库把业务传的 ArrayBuffer（请求体、WebSocket 消息）原样交给宿主，不经 `__nativeBuffers__`。每个 `wx.request` 都记录下来，供测试 API 的 `requests()` 读取 |
 | routes | 请求拦截规则：setup 的 `network.routes` 和测试 API 的 `route` 共用，在浏览器里匹配，命中的请求不发往代理 |
 | ui | toast / loading / modal / actionSheet / 导航栏 |
-| media | 选图（chooseImage / chooseMedia）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
+| media | 选图和视频（chooseImage / chooseMedia / chooseVideo）、previewImage、getImageInfo、saveImageToPhotosAlbum，见下文「原生组件」 |
 | audio | 原生音频接口（createAudioInstance、setAudioState、operateAudio 等），3.3.x 及更早版本的 InnerAudioContext 用，见下文「原生组件」 |
 | map | map 组件要的定位（`private_geolocation`）和 `moveToMapLocation`，见下文「原生组件」 |
 | picker | picker 组件的选择器弹层，见下文「原生组件」 |
 | webView | web-view 组件的网页视图，见下文「原生组件」 |
-| fs | 内存文件系统（基础库会往 `http://usr/` 写运行日志）；`readFile` 读不带协议的路径时向开发服务器取代码包里的文件，`readFileSync` 只读内存文件系统 |
+| fs | 用户文件和临时文件都在开发服务器上，按浏览器会话各存一份（会话标识存在 localStorage，刷新后不变，新的浏览器上下文另起一份），`USER_DATA_PATH` 是 `/__wxa__/usr/<会话>`，image 等组件和 uploadFile 能按地址读取。基础库写死的 `http://usr/`（运行日志）落在同一会话里。`Sync` 接口用同步 XHR，其余用 fetch；文件不存在等正常失败返回 200 和 `error`，不在控制台留下请求错误。`readFile` 读不带协议的路径时向开发服务器取代码包里的文件，`readFileSync` 读不到代码包 |
 | tempFiles / savedFiles | 临时文件存到开发服务器；保存的文件：saveFile、getSavedFileList / getSavedFileInfo、removeSavedFile，见下文「原生组件」 |
 | libFiles | 渲染层按需加载基础库文件（`loadLibFilesSync`），3.3.x、3.5.x 的 video 等组件用，见下文「原生组件」 |
 | subpackages | 分包加载任务：`createLoadSubPackageTask` 同步返回 taskId，随后通过 `onLoadSubPackageTaskStateChange` 推送 `progressUpdate`、`success`，未声明的分包失败。所有分包的代码构建时已经注册，不用下载；渲染层的 `injectSubPackages` 直接成功，模板和样式已在 page-frame.js 里。分包预下载和分包异步化（跨分包组件、`require.async`）都走这里 |
-| misc | 登录、用户信息等开放接口的固定返回（`--real-login` 时登录和手机号换成真实的）、剪贴板等 |
+| misc | 登录、用户信息等开放接口的固定返回（`--devtools-login` 时登录和手机号换成真实的，服务市场、插件校验经开发服务器转发）、剪贴板等 |
 | 路由 | 由 Host 实现 |
 
 未实现的 API 默认返回 `:ok` 并在控制台提示一次；基础库内部的上报类调用静默处理。
@@ -372,15 +406,28 @@ setup 和测试 API 的 `mock` 都在注册表这一层覆盖原生实现。
   网页内自己跳转时，同源网页报告新地址并触发 load，跨域网页读不到地址就不报；iframe 加载失败没有事件，binderror 不会触发。
   基础库拿到空的业务域名列表时会把 web-view 事件里的网页地址清空，所以拉取业务域名列表（`operateWXData` 的
   `webapi_getwxanetwork`）明确返回失败，基础库因此不做校验，等同开发者工具的「不校验业务域名」
+- **2d、webgl 画布**：基础库在 devtools 平台把这两种画布建在逻辑层文档的 body 里，按渲染层报来的位置（`canvasInserted` /
+  `canvasUpdated`）绝对定位、随页面滚动，开发者工具把逻辑层透明地叠在页面上显示，所以那里的画布盖住页面里的所有内容。
+  真机上画布和页面元素一样参与层级，宿主照真机做：业务第一次取上下文时（`getContext`，还没开始画），把画布元素搬进页面里对应的
+  `wx-canvas`，铺满它自己的 canvas。同源 iframe 之间移动元素，画布内容和已经拿到的上下文都不受影响。
+  逻辑层的画布元素上没有编号，基础库把「元素 → 编号」记在内部的 WeakMap 里（`WeakMap.prototype.set` 等内置方法被基础库锁住，拦不到），
+  宿主就给还没放好的同类型画布逐个发一条 top 带记号的 `canvasUpdated`，记号写到哪个元素上就是哪个编号，再用原来的位置发一次恢复（`Host.placeCanvas`）。
+  xr-frame 的画布不搬：基础库收到它的 `canvasUpdated` 会给 xr-frame 派发 resize，xr-frame 在 wxa-runner 里也没有验证过。
+  搬进页面后基础库仍会按逻辑层的布局改它的位置和显隐，渲染层用 `!important` 样式压住；删除时基础库还从逻辑层的 body 里删，`frame.ts` 兼容。
+  `canvas.createImage` 调开发者工具提供的 `__global.createCustomImage`（`frame.ts`）：代码包里的图片去掉开发者工具的 `/__pageframe__/` 前缀，
+  从开发服务器根路径加载；其他域名的图片经代理变成同源，画上去不污染画布，之后照样能读像素、导出
 - **临时文件**：canvas 导出、拍照、录像的结果（经 `base64ToTempFilePath`）、选中的图片、`downloadFile` 下载的文件都存到开发服务器，返回 http 地址。
   image、video 组件只原样使用 http(s) 地址，`blob:` 之类的地址会被当成页面相对路径。
   旧版 canvas 的 `drawImage` 正好相反：基础库把 http(s) 地址都当成网络图片直接跳过（只放行开发者工具的 `http://tmp/` 等），
   不报错，画布上什么也没有。所以宿主转发绘制指令（`canvasActionsChanged`）时，把其中的临时文件地址换成根路径 `/__wxa__/tmp/…`，
   页面和组件里都按开发服务器的根目录解析
-- **选图**：「从手机相册选择」和「拍摄」都打开浏览器的文件选择框（拍摄带 `capture`，手机浏览器上会打开相机）。
+- **选图和视频**：「从手机相册选择」和「拍摄」都打开浏览器的文件选择框（拍摄带 `capture`，手机浏览器上会打开相机）。
   和真机一样，两种来源都可选时先弹菜单。浏览器只允许在用户点击后的几秒内打开文件选择框（页面里的点击也算，会传到宿主页），
   没有经过点击就调用时也先弹菜单，用户点菜单就是一次点击；否则选择框打不开，回调永远不来。
-  `chooseMedia` 只支持图片。`previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
+  选视频时用 `<video>` 读出时长和宽高，截第一帧作缩略图，浏览器解码不了的格式这几项为空。
+  这些规则和开发者工具一致：不允许混选（`mediaType` 没有 `mix`）时选了视频就只要视频；允许混选时 `type` 总是 `mix`；
+  chooseVideo 也返回 `thumbTempFilePath`；chooseMedia 选的图片不带宽高。
+  `previewImage` 是宿主的全屏预览层，`saveImageToPhotosAlbum` 让浏览器下载这张图片
 - **音频（InnerAudioContext）**：3.5.8 起平台是 devtools 时基础库用 Web Audio 播放，先把音频读成 ArrayBuffer。
   网络音频经带 `__skipDomainCheck__` 的内部请求下载，宿主按请求的形状（`responseType` 为 `arraybuffer` 且带 `enableCache`，
   2.32.3 到 3.17.4 都是这样）只放行这一种，经代理下载；代码包里的音频经 `readFile` 向开发服务器读取。
@@ -408,7 +455,7 @@ setup 和测试 API 的 `mock` 都在注册表这一层覆盖原生实现。
 - **保存的文件**：`getFileInfo` 向开发服务器查临时文件的大小（不返回 digest）。`saveFile` 和真机一样把临时文件存成新文件、删掉原来的，
   新文件也在开发服务器上，image 能直接显示。保存记录写在 Storage 里，同样按 appid 隔离、整页刷新后还在；开发服务器重启后文件没了，
   记录随之失效，`getSavedFileInfo` 报文件不存在，Painter 等用它做缓存的库会重新下载。FileSystemManager 的 `saveFile`
-  指定 `filePath` 时直接失败：那是内存文件系统，存不了图片等二进制内容；`saveFileSync` 没有实现
+  指定 `filePath` 时直接失败（还没有实现）；`saveFileSync` 没有实现
 
 ### 伴生 SDK 子包
 
@@ -439,6 +486,32 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 
 不给 `SkylineGlobal` / `NativeGlobal` / `xrFrame` / `WeixinJSContext` 这类全局打桩——
 基础库对它们做 `typeof` 检测，补上会让它走进依赖更多的分支，比缺失更糟。
+
+### Worker
+
+和开发者工具一样，`wx.createWorker` 创建的 Worker 是浏览器的 Web Worker。基础库两端都通过原生的 `WeixinWorker` 通信，
+宿主实现两端的原生接口：逻辑层的在 `runtime/workers.ts`，装在逻辑层 iframe 上（3.8 起创建 Worker 的代码在主上下文，也是这个 iframe）；
+Worker 里的在 `runtime/worker.ts`。
+
+```
+逻辑层基础库                         宿主                                   Worker 基础库（WAWorker.js）
+WeixinWorker.create("workers.js") → new Worker(/__wxa__/worker.js?id=)
+WeixinWorker.postMsgToWorker(id, json) → Worker.postMessage            → WeixinWorker.appServiceMsgHandler(msg)
+WeixinWorker.workerMsgHandler(id, msg) ← message                       ← WeixinWorker.postMsgToAppService(json)
+WeixinJSBridge.invoke 的实现（宿主）     ← invoke / → callback            ← workerInvokeJsApi(api, args, callbackId)
+```
+
+- **入口**：`/__wxa__/worker.js` 依次加载 `__wxConfig`、`runtime/worker.js`、`WAWorker.js` 和 `workers` 目录下的每个模块（`importScripts`，DevTools 里保留文件名和行号）。
+  `create` 收到的脚本名总是 `workers.js`，业务指定的入口由基础库随后发 `requireScript` 消息让 Worker 去 `require`
+- **基础库里没有 `WAWorker.js`**（只放了逻辑层和渲染层文件的旧版内置基础库）时，入口不加载它，直接报告缺少的文件，记入 `errors()`
+- **没有配置 `workers`** 时 `create` 返回 -1，基础库报告 Worker 不存在。基础库加载后会从全局的 `__wxConfig` 里删掉 `workers`，所以在基础库之前读
+- **console**：Worker 基础库把 console 换成转发给逻辑层的版本，转发时对象被转成文本；和开发者工具一样加载完基础库后换回原来的，日志留在 Worker 里
+- **异常**：Worker 里没有被捕获的异常经消息交给宿主，记入测试 API 的 `errors()`；同时以 `workerUncaughtError` 交给逻辑层基础库，业务的 `worker.onError` 收到
+- **Worker 里的原生接口**：基础库只在有 `workerInvokeJsApi` 时才创建业务代码用的 `worker` 对象。异步接口转给宿主的 API 注册表，
+  只放行基础库在 `create` 时给出的 `APIList`。基础库同步取结果的接口（`*Sync`，以及要同步拿到 taskId 的 `createRequestTask` 等）直接失败：
+  Worker 只能和页面异步通信，开发者工具用 SharedArrayBuffer 阻塞等待，那要求整个页面跨源隔离（COOP / COEP），跨域的图片等资源都会加载不了
+- **Worker 分包**（`workers.isSubpackage`）：`wx.preDownloadSubpackage({ packageType: 'workers' })` 发的分包加载任务模块名是 `/workers.js`，
+  只在配置为分包时成功，与开发者工具一致
 
 ---
 
@@ -515,18 +588,20 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 | `/` | 宿主页面 |
 | `/__wxa__/app-info.json` | 构建信息（`__wxConfig`、页面列表、设备参数、setup）；构建失败时返回 `buildError`，宿主显示错误 |
 | `/__wxa__/setup.js` | 打包后的 setup 文件 |
-| `/__wxa__/runtime/*` | 浏览器运行时（`host.js`、`frame.js`） |
+| `/__wxa__/runtime/*` | 浏览器运行时（`host.js`、`frame.js`、`worker.js`、`sw.js`）；`sw.js` 带 `Service-Worker-Allowed: /`，能接管根路径下的宿主页面 |
 | `/__wxa__/appservice.html?path=&query=` | 逻辑层；`path` 写入 `appLaunchInfo` |
 | `/__wxa__/subcontext.html?id=` | 3.7.1 起逻辑层里的子上下文 |
 | `/__wxa__/webview/<page>.html?id=` | 渲染层 |
-| `/__wxa__/module/<file>.js` | 单个业务模块 |
+| `/__wxa__/module/<file>.js` | 单个业务模块，包括 `workers` 目录下的 |
+| `/__wxa__/worker.js?id=` | Worker 的入口 |
 | `/__wxa__/service-bootstrap.js`、`/__wxa__/page-frame.js` | 构建产物 |
 | `/__wxa__/service-templates.js`、`page-templates.js`、`page-styles.js` | 两层的模板和渲染层的样式，热更新时重新下发 |
 | `/__baselib__/*` | 基础库；`*.js.map` 是把它加入 DevTools 忽略列表的 source map |
-| `/__wxa__/proxy?url=` | 网络代理 |
+| `/__wxa__/proxy/<协议>/<域名><路径>` | 网络代理，如 `/__wxa__/proxy/https/api.example.com/a?b=1`：原地址写在路径里，Network 面板的 Name 列显示接口名 |
+| `/__wxa__/mock/<协议>/<域名><路径>` | 被拦截请求在 Network 面板里的地址，由 Service Worker 返回拦截规则给出的响应；到达服务器说明 Service Worker 没生效，返回 503 |
 | `/__wxa__/tmp` | 临时文件：`POST ?type=png` 保存，返回可直接访问的地址；对该地址 `HEAD` 查大小、`DELETE` 删除；随服务器进程存在 |
 | `/__wxa__/region/<districts\|streets>` | 地区选择器用的行政区划数据，取自本机开发者工具 |
-| `/__wxa__/api/*` | 真实登录（`--real-login`）：`wx.login` 的 code、手机号，只允许本机访问 |
+| `/__wxa__/api/*` | `--devtools-login`：`wx.login` 的 code、手机号，服务市场、插件校验和插件信息的转发，只允许本机访问 |
 | `/__wxa__/ws` | 文件变化通知：热更新（`hot`）、整页刷新（`reload`）、编译错误（`error`） |
 | 其他 | 小程序目录下的静态资源 |
 
@@ -534,6 +609,44 @@ bootstrap 每次 require 业务模块时先装一遍（`installApiStubs` 幂等�
 禁止设置的请求头因此也能带上；响应头和 `set-cookie` 以 URL 编码的 JSON 返回。代理只监听本机地址，
 用于开发环境。只转发小程序自己的请求：基础库自己的请求（数据上报、配置拉取等，带 `__skipDomainCheck__` 标记）
 直接按失败返回，不发往网络，也不记入 `requests()`。唯一的例外是 InnerAudioContext 下载音频（见「原生组件」），同样不记入 `requests()`。
+
+**Network 面板**（`runtime/networkPanel.ts`）：原地址写在代理的路径里而不是查询参数里，Name 列才显示接口名，按域名、路径过滤也直接可用。
+被拦截的请求不经代理，为了也能在面板里看到，宿主照原请求再发一个 `/__wxa__/mock/…` 的同源请求，Service Worker（`runtime/sw.ts`）拦下它，
+经 MessagePort 向宿主要拦截规则给出的响应（`host/api/mockMirror.ts`）。这个请求只用于显示，小程序拿到的结果不经过 Service Worker，
+所以 Service Worker 没接管页面时（首次打开、强制刷新、局域网地址不是安全上下文）只是不显示，请求照常完成。
+显示地址用同源的 `/__wxa__/mock/` 而不是原地址：Service Worker 没拦下时（DevTools 勾选了 Bypass for network）只会打到开发服务器，不会把本该拦截的请求发到真实后端。
+Service Worker 用 Static Routing API 让其余请求直接走网络，不经过它。自动化测试（`navigator.webdriver`）里不注册：测试不看面板，
+而且经过 Service Worker 的请求 Playwright 的 `page.route` 拦不到。
+
+---
+
+## 开发工具扩展点
+
+开发工具（如元素检查器 [wxa-inspector](https://github.com/open-wxa/wxa-inspector)）通过三个扩展点接入，runner 不认识具体的工具：
+
+| 选项 | 作用 |
+| --- | --- |
+| `webviewScripts` | 注入每个渲染层页面（含插件页面、跳转后新建的页面）的脚本。`position: 'head'` 在桥（`frame.js`）之后、基础库之前执行，用于要赶在基础库之前注册事件监听的脚本；`'body'`（默认）在 `<body>` 开头、页面渲染之前执行——放在 body 末尾不会执行，基础库渲染时会换掉 body |
+| `middlewares` | 挂在 HTTP 服务上的路由，排在 runner 自己的路由之前，`req.url` 去掉了前缀，不处理时 `next()` 交回 runner。只收字面量路径（Express 会把 `*`、`:参数` 当模式匹配），不能挂在 `/`，也不能占用 `/__wxa__`、`/__baselib__`、`/__plugin__`（不区分大小写，Express 匹配路径不区分大小写） |
+| `wxmlTransform` | wxml 交给 wcc 之前的转换。wcc 只接收路径、自己读文件，所以转换结果写进临时镜像目录（`project/WxmlMirror.ts`），只重新转换内容变了的文件，项目里删掉的文件同时删掉；转换不能改变行数，编译错误才能指向源文件 |
+
+**扩展**（`server/extensions.ts`）：开发工具把要用的扩展点打包成一个扩展 `{ name, setup(context) }`。`setup` 收到项目目录和小程序根目录，
+返回 `webviewScripts`、`middlewares`、`wxmlTransform`，以及可选的 `entry`（扩展自己的页面）。`DevServer` 的 `extensions` 选项接收扩展，
+按顺序合并在直接给出的选项之后：脚本和中间件依次拼接，wxml 转换依次串起来。「插件」在 runner 里指小程序插件，所以这里叫扩展。
+
+命令行的 `--extension <模块>` 从用户项目（项目目录、当前目录，最后是 runner 自身）加载扩展——它是用户项目的开发依赖，
+pnpm 不提升依赖时从 runner 的安装位置找不到。按 `require` 的规则解析入口，用 `import()` 加载，所以 CommonJS 和 ES 模块都可以，
+但 `exports` 要提供 `require` 或 `default` 条件。模块的默认导出可以是扩展，也可以是不带参数调用后返回扩展的函数。
+扩展的 `entry` 打印在启动信息里，`--open` 打开第一个。
+
+**开发工具可以依赖的约定**：除了这三个选项，开发工具还依赖下面这些运行时行为。改动它们等于破坏开发工具，
+所以都有测试守着（`tests/e2e/devTools.test.ts` 在各个已验证的基础库上跑，`tests/integration/devServerExtensions.test.ts`）：
+
+- 渲染层页面是宿主页面里的同源 iframe，宿主页面可以再被嵌进开发工具自己的页面：按 `window.frames` 逐层广播的消息能到达每个渲染层，渲染层能 `postMessage` 给 `top`
+- 鼠标操作在渲染层按 `touchstart` / `touchmove` / `touchend` 派发（`frame.ts`），浏览器原生的 `click` 照常派发；`head` 脚本在捕获阶段拦下 touch 后不触发 tap
+- 渲染层元素的 `__wxElement.dataset` 读得到 wxml 里写的 `data-*`；自定义组件的内容渲染在宿主元素里，宿主的 `__wxElement.is` 是组件路径。这是基础库的行为，runner 不能保证，测试用来在升级内置基础库时尽早发现变化
+- `/__wxa__/ws` 广播的消息：重新编译成功时 `{ type: 'hot', … }` 或 `{ type: 'reload' }`，失败时 `{ type: 'error', message }`
+- 编译失败时 `/__wxa__/app-info.json` 带 `buildError`
 
 ---
 
@@ -610,4 +723,4 @@ chokidar → 合并一次保存引起的变化，跳过内容没变的文件
 ### 为什么内置基础库放在单独的仓库？
 
 基础库是微信官方代码，版权归腾讯，不适用本项目的 MIT 协议，所以和本项目的代码分开，放在 [wxa-baselib](https://github.com/open-wxa/wxa-baselib) 仓库，
-作为可选依赖从 GitHub 安装。安装失败不影响 wxa-runner 本身；有开发者工具的机器优先用开发者工具下载的版本，也能自由切换版本。
+作为可选依赖安装。安装失败不影响 wxa-runner 本身；有开发者工具的机器优先用开发者工具下载的版本，也能自由切换版本。

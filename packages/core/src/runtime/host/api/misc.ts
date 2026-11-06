@@ -2,26 +2,46 @@
  * 其余 API：开放接口 Mock、剪贴板等
  *
  * 开放接口（登录、用户信息、支付）在浏览器里无法真实调用，返回可预测的假数据，
- * 测试中可以用 __wxa_test_api__.mock() 覆盖。开启 --real-login 时，登录和手机号经开发服务器向微信换取真实结果。
+ * 测试中可以用 __wxa_test_api__.mock() 覆盖。开启 --devtools-login 时，登录、手机号、服务市场（wx.serviceMarket）和插件经开发服务器借开发者工具的登录态向微信取真实结果。
  */
 
 import { ApiHandler, ApiResult, fail, ok } from './registry';
 import { saveTempFile } from './tempFiles';
 
 export interface MiscApiOptions {
-  realLogin?: boolean;
-  /** 真实登录失败时触发，用来在页面上提示开发者；业务代码照常收到 fail */
-  onRealLoginFail?: (api: string, reason: string) => void;
+  devtoolsLogin?: boolean;
+  /** 经开发服务器向微信取结果失败时触发，用来在页面上提示开发者；业务代码照常收到 fail */
+  onDevtoolsLoginFail?: (api: string, reason: string) => void;
 }
 
+/** wx.serviceMarket.invokeService 经原生 operateWXData 发出时的 api_name */
+const SERVICE_MARKET = 'webapi_servicemarket_jsapi_comm';
+/** 云开发（wx.cloud 的 init、callFunction、数据库、存储）经原生 operateWXData 发出时的 api_name，具体操作在 data.qbase_api_name 里 */
+const CLOUD = 'qbase_commapi';
+
 export function createMiscApis(appid: string, options?: MiscApiOptions): Record<string, ApiHandler> {
-  const realLogin = async (api: string, url: string) => {
+  /** 经开发服务器借开发者工具的登录态向微信取结果 */
+  const viaDevtools = async (api: string, url: string, json?: object) => {
     try {
-      return await postDevServer(url);
+      return await postDevServer(url, json);
     } catch (error) {
-      options?.onRealLoginFail?.(api, (error as Error).message);
+      options?.onDevtoolsLoginFail?.(api, (error as Error).message);
       throw error;
     }
+  };
+
+  let cloudWarned = false;
+  /**
+   * 云开发要以用户身份访问微信后台，浏览器里做不到。明确失败而不是返回空的成功：后者让 SDK 报出
+   * Cannot read properties of undefined (reading 'stat') 这类看不出原因的错误。失败原因会带进
+   * callFunction、数据库等接口的 errMsg
+   */
+  const cloudUnavailable = (api: string, operation?: string) => {
+    if (!cloudWarned) {
+      cloudWarned = true;
+      console.warn('[wxa-runner] 云开发（wx.cloud）在浏览器运行时不可用，调用会失败');
+    }
+    return fail(api, `wxa-runner 不支持云开发（${operation ?? 'unknown'}）`);
   };
 
   return {
@@ -33,20 +53,41 @@ export function createMiscApis(appid: string, options?: MiscApiOptions): Record<
 
     // 基础库经这两个接口向后台拉各种配置和小程序信息
     operateWXData: (args, { api }) => {
+      if (args.data?.api_name === SERVICE_MARKET) {
+        // 基础库只在失败结果带 err_code 时把 errMsg 拼进 invokeService 的错误，否则业务代码只看到 [object Object]
+        const serviceMarketFail = (reason: string) => fail(api, reason, { err_code: -1 });
+        if (!options?.devtoolsLogin) return serviceMarketFail('wx.serviceMarket 要向微信服务市场真实调用，启动时加 --devtools-login');
+        // 结果原样交回：服务市场的结果码和数据由基础库从 data 里解析
+        return viaDevtools('serviceMarket.invokeService', '/__wxa__/api/operate-wx-data', { data: args.data }).then(
+          ({ data }) => ok(api, { data }),
+          (error: Error) => serviceMarketFail(error.message)
+        );
+      }
+      if (args.data?.api_name === CLOUD) return cloudUnavailable(api, args.data.data?.qbase_api_name);
       if (args.data?.api_name === 'webapi_getwxanetwork') return bizDomainUnavailable(api);
       if (args.data?.api_name === 'webapi_getwxauserprivacyauthinfo') return ok(api, { data: { data: JSON.stringify(PRIVACY_AUTH_INFO) } });
-      return ok(api);
+      // 原生的成功结果总带着 data，2.32.3 的基础库直接解构它，没有就报 Cannot destructure property 'data'。
+      // 基础库启动时自己就会调几个（webapi_getwxabusinessconfig、getSubjectalterInfo 等）
+      return ok(api, { data: {} });
     },
     getAppContact: (args, { api }) =>
       args.keyPath === 'WxaAppInfo.Network.BizDomain' ? bizDomainUnavailable(api) : ok(api),
+    // 基础库内部的实验开关。不在实验里时原生返回空字符串；没有 testConfig 时 3.3.4 读它的 length 报错
+    getABTestConfig: (_args, { api }) => ok(api, { testConfig: '' }),
 
-    // 真实登录失败时明确返回 fail，不退回假数据：配置或登录态的问题要让开发者马上发现
-    login: options?.realLogin
-      ? async (_args, { api }) => ok(api, { code: (await realLogin(api, '/__wxa__/api/login')).code })
+    // 插件：基础库启动时校验插件、取插件信息，插件里的网络请求要等拿到这两样才发出。插件代码也只在 --devtools-login 时下载
+    ...(options?.devtoolsLogin ? {
+      verifyPlugin: (async (args, { api }) => ok(api, await viaDevtools(api, '/__wxa__/api/verify-plugin', { data: args.data }))) as ApiHandler,
+      batchGetContact: (async (args, { api }) => ok(api, await viaDevtools(api, '/__wxa__/api/batch-get-contact', { appIds: args.appIds }))) as ApiHandler
+    } : {}),
+
+    // 向微信取不到时明确返回 fail，不退回假数据：配置或登录态的问题要让开发者马上发现
+    login: options?.devtoolsLogin
+      ? async (_args, { api }) => ok(api, { code: (await viaDevtools(api, '/__wxa__/api/login')).code })
       : (_args, { api }) => ok(api, { code: `wxa_mock_code_${Date.now().toString(36)}` }),
     // 基础库只从 JSON.parse(data) 里取手机号的 code
-    getPhoneNumber: options?.realLogin
-      ? async (_args, { api }) => ok(api, await realLogin(api, '/__wxa__/api/phone-number'))
+    getPhoneNumber: options?.devtoolsLogin
+      ? async (_args, { api }) => ok(api, await viaDevtools(api, '/__wxa__/api/phone-number'))
       : (_args, { api }) => ok(api, { data: JSON.stringify({ code: `mock_phone_code_${Date.now()}` }), encryptedData: 'mock_encrypted', iv: 'mock_iv' }),
     checkSession: () => undefined,
     authorize: () => undefined,
@@ -76,8 +117,11 @@ export function createMiscApis(appid: string, options?: MiscApiOptions): Record<
 let clipboard = '';
 
 /** @throws 开发服务器返回的失败原因（由注册表转成 xxx:fail），返回的不是 JSON 时带上状态码 */
-async function postDevServer(url: string): Promise<Record<string, any>> {
-  const response = await fetch(url, { method: 'POST' });
+async function postDevServer(url: string, json?: object): Promise<Record<string, any>> {
+  const init: RequestInit = json
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) }
+    : { method: 'POST' };
+  const response = await fetch(url, init);
   const body = await response.json().catch(() => null);
   if (!response.ok || !body) throw new Error(body?.error || `开发服务器返回 HTTP ${response.status}`);
   return body;

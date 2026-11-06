@@ -9,9 +9,13 @@
  * 子上下文页面也加载这个脚本（data-context-id），只准备全局变量，桥由主上下文的基础库交给它。
  */
 
-import { installWeixinJSContext } from './context';
-import { installApiStubs } from './sdkStubs';
+import { hookConsole } from './consoleHook';
+import { installSingleContextLibLoader, installWeixinJSContext } from './context';
+import { fileSession } from './fileSession';
+import { PROXY_PREFIX, toServerPath } from './networkPanel';
+import { guardSdkGlobals, installApiStubs } from './sdkStubs';
 import type { FrameBridge, FrameKind, HostApi } from './types';
+import { createWeixinWorker } from './workers';
 
 type Listener = (data: unknown, webviewId?: number) => void;
 
@@ -23,6 +27,8 @@ const host = ((subContextId ? window.parent.parent : window.parent) as any).__wx
 const g = window as any;
 
 g.__global = g;
+// 用户目录按浏览器会话隔离（见 fileSession.ts），基础库读 __wxConfig 前换好。子上下文没有自己的 __wxConfig
+if (!subContextId) g.__wxConfig.env.USER_DATA_PATH = `${location.origin}/__wxa__/usr/${fileSession()}`;
 
 if (kind === 'service') {
   Object.assign(g, {
@@ -35,7 +41,8 @@ if (kind === 'service') {
     global: {},
     __workerVendorCode__: {},
     __workersCode__: {},
-    WeixinWorker: {},
+    // 创建 Worker 的基础库代码在逻辑层 iframe 里（3.8 起是主上下文），子上下文用不到
+    WeixinWorker: subContextId ? {} : createWeixinWorker(window, host),
     $gwx: undefined
   });
   g.__WeixinWorker = g.WeixinWorker;
@@ -49,7 +56,21 @@ if (kind === 'service') {
       if (key !== 'Protect') g[key] = globals[key];
     }
   };
-  hookRequire();
+  // 单上下文的基础库（3.7.0 及以前）：业务代码和基础库在同一个全局对象里。新版基础库在业务代码所在的子上下文里
+  // 自己替换 Function，伴生 SDK 也能正常加载，这两件事都不用管
+  const businessCodeHere = !subContextId && !script.dataset.appService;
+  if (businessCodeHere) {
+    const disableFunctionConstructor = reserveFunctionConstructor();
+    const globalsBeforeBaseLib = new Set(Object.getOwnPropertyNames(g));
+    hookRequire(() => {
+      disableFunctionConstructor();
+      guardSdkGlobals(g, globalsBeforeBaseLib);
+    });
+  } else {
+    hookRequire();
+  }
+  g.createCustomImage = createCustomImage;
+  moveCanvasesIntoPages();
 } else {
   emulateDeviceScreen(host.device);
   installInput();
@@ -60,6 +81,8 @@ overrideUserAgent();
 
 window.addEventListener('error', event => host.reportError(kind, webviewId, event.error || event.message));
 window.addEventListener('unhandledrejection', event => host.reportError(kind, webviewId, event.reason));
+// 生命周期、事件处理函数、wx API 回调里的错误被基础库捕获后只用 console.error 打印，记入 errors() 也要包装它
+hookConsole(host.forwardConsole === 'all' ? ['warn', 'error'] : ['error'], (level, args) => host.reportConsole(kind, webviewId, level, args));
 
 if (subContextId) {
   (window.parent as any).__wxaContexts.prepare(subContextId, window);
@@ -74,8 +97,39 @@ if (subContextId) {
       appServiceScripts: JSON.parse(script.dataset.appService),
       hot: script.dataset.hot === '1'
     });
+  } else if (kind === 'service') {
+    installSingleContextLibLoader(window);
   }
   host.registerFrame(kind, window, bridge, webviewId);
+}
+
+/**
+ * 与新版基础库的 hijack 相同：真机上业务代码用不了 Function 构造函数，除 Function('return this') 返回全局对象外，
+ * 都返回 undefined、不编译参数。uni-app 的 props: { onBack: { default: Function } } 因此在真机上静默得到 undefined，
+ * 不替换的话 Vue 取默认值时会把 props 对象当代码编译，抛出 SyntaxError，组件创建失败。
+ *
+ * 单上下文的基础库初始化时自己要用 Function，初始化完又把内置对象改成只有基础库能写的属性，到执行业务代码时已经换不掉。
+ * 所以在基础库之前把 Function 和 Function.prototype.constructor 占成不可配置的存取器（基础库就不再接管），
+ * 返回的函数在执行业务代码前调用，之后取到的都是禁用的版本
+ */
+function reserveFunctionConstructor(): () => void {
+  const native = Function;
+  const disabled = function (...args: unknown[]) {
+    if (args.length > 0 && args[args.length - 1] === 'return this') return () => g;
+  };
+  disabled.prototype = native.prototype;
+  let current: unknown = native;
+  const reserve = (target: object, key: string) => Object.defineProperty(target, key, {
+    get: () => current,
+    set() {},
+    enumerable: false,
+    configurable: false
+  });
+  reserve(g, 'Function');
+  reserve(native.prototype, 'constructor');
+  return () => {
+    current = disabled;
+  };
 }
 
 /**
@@ -86,10 +140,15 @@ if (subContextId) {
  * 而异（3.7.0 直接写 globalThis，并不调 __passWAServiceGlobal__），事后包装没有可靠的时机。
  * installApiStubs 幂等，每次 require 都查一遍，不赌某一次调用的先后。
  */
-function hookRequire() {
+function hookRequire(beforeBusinessCode?: () => void) {
   let real: unknown;
+  let businessCodeStarted = false;
   const wrapper = function (this: unknown, ...args: unknown[]) {
     if (g.wx) installApiStubs(g.wx);
+    if (!businessCodeStarted) {
+      businessCodeStarted = true;
+      beforeBusinessCode?.();
+    }
     return (real as (...a: unknown[]) => unknown).apply(this, args);
   };
   try {
@@ -102,6 +161,62 @@ function hookRequire() {
   } catch {
     // 定义不了就算了，广告接口退回基础库原样（返回 undefined）
   }
+}
+
+/**
+ * type="2d" 和 webgl 画布：基础库在 devtools 平台把它们建在逻辑层文档的 body 里，开发者工具把逻辑层透明地叠在页面上显示，
+ * 画布于是盖住页面里的所有内容；真机上画布和页面元素一样参与层级。所以业务第一次取上下文时（还没开始画），
+ * 请宿主把画布搬进页面里对应的 wx-canvas（见 Host.placeCanvas）。之后基础库删除画布时仍从 body 里删，那时元素已经不在这里了
+ */
+function moveCanvasesIntoPages() {
+  const { getContext } = HTMLCanvasElement.prototype;
+  const { removeChild } = Node.prototype;
+  // 宿主认不出的（如离屏画布）只试一次
+  const tried = new WeakSet<HTMLCanvasElement>();
+
+  HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, ...args: unknown[]) {
+    if (this.parentNode === document.body && !tried.has(this)) {
+      tried.add(this);
+      host.placeCanvas(this, String(args[0]));
+    }
+    return (getContext as (...a: unknown[]) => unknown).apply(this, args);
+  } as typeof getContext;
+
+  HTMLBodyElement.prototype.removeChild = function <T extends Node>(this: HTMLBodyElement, child: T): T {
+    if (child.parentNode === this || !(child instanceof HTMLCanvasElement)) return removeChild.call(this, child) as T;
+    child.remove();
+    return child;
+  };
+}
+
+/**
+ * type="2d" 和 webgl 画布的 createImage，开发者工具提供的原生能力（__global.createCustomImage）。
+ * toUrl 把业务设置的 src 转成要加载的地址，代码包里的文件会带上开发者工具的 /__pageframe__/ 前缀；
+ * fromUrl 把它还原成业务读 src 时看到的值。
+ */
+function createCustomImage(toUrl: (src: string) => string, fromUrl: (url: string) => string): HTMLImageElement {
+  let url = '';
+  return new (class extends Image {
+    set src(value: string) {
+      url = toUrl(value);
+      super.src = loadableImageUrl(url);
+    }
+
+    get src() {
+      return fromUrl(url);
+    }
+  })();
+}
+
+/**
+ * 代码包里的文件由开发服务器在根路径提供。其他域名的图片经代理变成同源：直接加载的话画上去会污染画布，
+ * 之后读像素、导出都会失败；加 crossOrigin 又要对方返回 CORS 头，大多数图片服务器不返回。
+ * 格式不对的地址原样加载，失败时走 onerror，和原生 Image 一样不在赋值时抛错
+ */
+function loadableImageUrl(url: string): string {
+  if (url.startsWith('/__pageframe__/')) return url.slice('/__pageframe__'.length);
+  if (/^https?:\/\//i.test(url) && !url.startsWith(location.origin + '/')) return toServerPath(PROXY_PREFIX, url) ?? url;
+  return url;
 }
 
 function createBridge(): FrameBridge & Record<string, unknown> {
@@ -244,12 +359,19 @@ function overrideUserAgent() {
  * 另外，基础库在元素滚动后 50ms 内会把触摸当作滑动、取消 tap。自动化测试常常是
  * 「滚动到元素 → 立刻点击」，而 scroll 事件要到下一帧才派发，所以按下时先等两帧
  * 让挂起的 scroll 事件派发完，刚滚动过的话再顺延到窗口之后。同一次按压的事件按原顺序派发。
+ *
+ * 按下后移出 TOUCH_SLOP 之前的 mousemove 不转成 touchmove（类似触屏的 touch slop）。swiper 等组件
+ * 按第一个 touchmove 的位移判断手势方向，鼠标刚拖动时常先抖出 1px 的竖向位移，直接转发的话横向拖动
+ * 会被判成竖向、整次拖动都被忽略。阈值小于基础库取消 tap 的 10px，点击和长按不受影响。
+ * 没移出阈值就松手时，先补一个到松手位置的 touchmove，slider 微调、画短笔画这类小幅拖动不会丢。
  */
 function installInput() {
   const SCROLL_TAP_GUARD = 80;
+  const TOUCH_SLOP = 8;
   let lastScroll = 0;
   let queue: Promise<void> = Promise.resolve();
   let target: EventTarget | null = null;
+  let start: { x: number; y: number } | null = null;
 
   document.addEventListener('scroll', () => {
     lastScroll = Date.now();
@@ -291,15 +413,26 @@ function installInput() {
     event.stopImmediatePropagation();
     if (event.button !== 0 || !event.target) return;
     target = event.target;
+    start = { x: event.clientX, y: event.clientY };
     fire('touchstart', event, target);
   }, true);
   window.addEventListener('mousemove', event => {
     event.stopImmediatePropagation();
-    if (target) fire('touchmove', event, target);
+    if (!target) return;
+    if (start) {
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < TOUCH_SLOP) return;
+      start = null;
+    }
+    fire('touchmove', event, target);
   }, true);
   window.addEventListener('mouseup', event => {
     event.stopImmediatePropagation();
     if (!target) return;
+    if (start && (event.clientX !== start.x || event.clientY !== start.y)) {
+      fire('touchmove', event, target);
+      // movable-view 等组件在下一帧才应用位移，同一帧里就收到 touchend 的话这段位移会被丢掉
+      queue = queue.then(nextFrame);
+    }
     fire('touchend', event, target);
     target = null;
   }, true);

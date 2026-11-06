@@ -1,5 +1,5 @@
 ---
-description: wxa-runner 命令行：dev 启动开发服务器的选项（端口、基础库版本、setup、真实登录），baselib 管理基础库，以及 WXA_BASELIB 等环境变量。
+description: wxa-runner 命令行：dev 启动开发服务器的选项（端口、局域网访问、基础库版本、setup、报错转发到终端、借用开发者工具登录态），baselib 管理基础库，viewer 打包和部署查看器，以及 WXA_BASELIB 等环境变量。
 ---
 
 # 命令与环境变量
@@ -9,6 +9,7 @@ description: wxa-runner 命令行：dev 启动开发服务器的选项（端口�
 | [`wxa-runner dev <项目目录>`](#wxa-runner-dev) | 启动开发服务器，在浏览器里运行小程序，改动后热更新 |
 | [`wxa-runner baselib list`](#wxa-runner-baselib) | 列出可用的基础库及兼容性 |
 | [`wxa-runner baselib extract [版本]`](#wxa-runner-baselib) | 解包基础库（`dev` 会自动执行） |
+| [`wxa-runner viewer pack` / `preview` / `export`](./viewer.md#命令) | 打包成 `.wxapack`、在本机打开查看器、导出查看器站点，见[查看器](./viewer.md)（目前只能在仓库里用） |
 
 没装成开发依赖时在前面加 `npx`，如 `npx wxa-runner dev .`。
 
@@ -22,14 +23,18 @@ wxa-runner dev <项目目录> [选项]
 
 | 选项 | 默认值 | 作用 |
 | --- | --- | --- |
-| `-p, --port <端口>` | `3000` | 端口号 |
-| `--host <地址>` | `localhost` | 监听地址 |
+| `-p, --port <端口>` | `3000` | 端口号。默认端口被占用时自动换用后面的端口 |
+| `--host [地址]` | `localhost` | 监听地址。只写 `--host` 时开放局域网访问 |
 | `-b, --baselib <版本>` | 最新的兼容版本 | 基础库版本，见 [wxa-runner baselib](#wxa-runner-baselib) |
 | `--setup <文件>` | 自动查找 | 小程序启动前执行的 [setup 文件](./setup.md)，路径相对当前目录。不指定时使用项目目录下的 `wxa.setup.ts` / `.js` / `.mjs` |
 | `--no-setup` | | 不执行 setup 文件 |
 | `--no-watch` | | 不监听文件变化、不热更新，运行环境与真机一致。跑测试时用 |
 | `-o, --open` | | 启动后打开浏览器 |
-| `--real-login` | | 用本机开发者工具的登录态获取真实的 `wx.login` code 和手机号，见[真实登录](./real-login.md) |
+| `--forward-console` | 检测到编程助手时开启 | `console.warn` / `console.error` 也转发到终端，见[报错转发到终端](#报错转发到终端) |
+| `--no-forward-console` | | 报错不转发到终端 |
+| `--devtools-login` | | 借本机开发者工具的登录态访问微信后台：真实的 `wx.login` code 和手机号、服务市场 `wx.serviceMarket`、插件，见[借用开发者工具登录态](./devtools-login.md) |
+| `--webview-window` | | web-view 的网页在新窗口打开，不再嵌在模拟器里。网页和模拟器（localhost）不是同一个站点时，网页的 Cookie 也能正常使用，见 [web-view 的 Cookie](./features.md#web-view-的-cookie) |
+| `--extension <模块>` | | 加载开发服务器扩展，npm 包名或文件路径，可以写多次。从项目目录、当前目录依次查找，扩展提供的页面打印在启动信息里，`--open` 时打开第一个。如元素检查器：`--extension @open-wxa/wxa-inspector`（先 `npm i -D @open-wxa/wxa-inspector`） |
 
 常见用法：
 
@@ -37,7 +42,7 @@ wxa-runner dev <项目目录> [选项]
 # 原生小程序，启动后打开浏览器
 wxa-runner dev . --open
 
-# uni-app：先运行 uni-app 的监听构建，再启动编译产物；setup 文件放在源码目录
+# uni-app：先运行 uni-app 的监听构建，再启动编译产物；setup 文件放在源码目录（用 Vite 插件时不用手动启动）
 wxa-runner dev ./dist/dev/mp-weixin --setup ./wxa.setup.ts
 
 # 用指定的基础库版本
@@ -45,9 +50,25 @@ wxa-runner dev . --baselib 3.5.8
 
 # 给测试用：不热更新，端口固定
 wxa-runner dev . --no-watch --port 3000
+
+# 开放局域网访问
+wxa-runner dev . --host
 ```
 
 地址带上 `?path=` 直接打开指定页面，其余参数作为页面参数：`http://localhost:3000/?path=pages/detail/detail&id=1`。
+
+### 报错转发到终端
+
+页面里的报错默认打印到终端，栈只留业务代码：
+
+```
+[wxa-runner] 逻辑层（pages/index/index）报错：Cannot read properties of undefined (reading 'name')
+    at bo.loadList (pages/index/index.js:9:23)
+```
+
+逻辑层在首页创建前出错时（`onLaunch` 里，或启动阶段的接口回调里），报错后附一行提示：`出错时首页还没创建，getCurrentPages() 返回的是空数组`。setup 拦截的请求立即返回，回调比真机更容易早于首页执行；需要模拟网络耗时就给拦截规则加 `delay`。
+
+在编程助手（Claude Code、Codex、Cursor 等）里启动时，`console.warn` / `console.error` 也会转发。
 
 ## wxa-runner baselib
 
@@ -70,6 +91,6 @@ wxa-runner dev . --no-watch --port 3000
 | `WXA_DEVTOOLS_PATH` | 开发者工具不在默认位置时，指定安装目录（如 macOS 上的 `.app` 目录），新旧版本都可以 |
 | `WXA_VENDOR_DIR` | 指定基础库目录（开发者工具的 `WeappVendor`） |
 | `WXA_WCC` / `WXA_WCSC` | 直接指定 WXML / WXSS 编译器，优先于开发者工具和 miniprogram-compiler |
-| `WECHAT_DEV_TICKET` | `--real-login` 使用的开发者 ticket，优先于开发者工具的登录态 |
-| `WECHAT_DEVTOOLS_CLI_TOKEN` | 开发者工具设置了「CLI 访问令牌」时设成它：`--real-login` 调用的开发者工具命令行从这里读取令牌 |
+| `WECHAT_DEV_TICKET` | `--devtools-login` 使用的开发者 ticket，优先于开发者工具的登录态 |
+| `WECHAT_DEVTOOLS_CLI_TOKEN` | 开发者工具设置了「CLI 访问令牌」时设成它：`--devtools-login` 调用的开发者工具命令行从这里读取令牌 |
 | `WXA_*` | 所有 `WXA_` 开头的变量都传给 setup 文件，见 [setup 的环境变量](./setup.md#不把-token-写死在文件里) |

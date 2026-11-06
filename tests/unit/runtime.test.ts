@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { MemoryFileSystem } from '../../packages/core/src/runtime/host/api/fs';
+import { FileStore } from '../../packages/core/src/server/FileStore';
 import { ApiContext, ApiRegistry } from '../../packages/core/src/runtime/host/api/registry';
 import { createStorageApis, KeyValueStore, MiniProgramStorage } from '../../packages/core/src/runtime/host/api/storage';
 import { PageStack } from '../../packages/core/src/runtime/host/PageStack';
@@ -131,6 +131,16 @@ describe('Storage', () => {
     expect(storage.info('s3').keys).toEqual(['k']);
   });
 
+  it('getStorageInfo 按 KB 报告已用空间（每个字符算 2 字节，向上取整），上限 10MB', () => {
+    const apis = createStorageApis(new MiniProgramStorage(new MemoryStore(), 'wx1'));
+    const info = () => apis.getStorageInfoSync({}, { ...context, api: 'getStorageInfoSync' }) as Record<string, any>;
+    expect(info()).toEqual({ keys: [], currentSize: 0, limitSize: 10240 });
+
+    apis.setStorageSync({ key: 'k', data: 'x'.repeat(4096), dataType: 'String' }, { ...context, api: 'setStorageSync' });
+    // 4096 个字符是 8KB，键名和序列化附带的类型信息另占几十字节
+    expect(info()).toMatchObject({ keys: ['k'], currentSize: 9 });
+  });
+
   it('不同 appid 的数据互不可见', () => {
     const store = new MemoryStore();
     new MiniProgramStorage(store, 'a').set('s0', 'k', '1');
@@ -138,18 +148,18 @@ describe('Storage', () => {
   });
 });
 
-describe('MemoryFileSystem', () => {
+describe('FileStore', () => {
   it('支持 USER_DATA_PATH 风格的路径，递归创建目录后读写文件', () => {
-    const fs = new MemoryFileSystem();
+    const fs = new FileStore();
     fs.mkdir('http://usr/logs/a', true);
     fs.write('http://usr/logs/a/1.log', 'x');
     fs.write('http://usr/logs/a/1.log', 'y', true);
-    expect(fs.read('http://usr/logs/a/1.log')).toBe('xy');
+    expect(new TextDecoder().decode(fs.read('http://usr/logs/a/1.log'))).toBe('xy');
     expect(fs.readdir('http://usr/logs')).toEqual(['a']);
   });
 
   it('父目录不存在、重复创建、删除非空目录时报错', () => {
-    const fs = new MemoryFileSystem();
+    const fs = new FileStore();
     expect(() => fs.write('/a/b.txt', '')).toThrow('no such file or directory');
     fs.mkdir('/a');
     expect(() => fs.mkdir('/a')).toThrow('already exists');
@@ -157,5 +167,33 @@ describe('MemoryFileSystem', () => {
     expect(() => fs.remove('/a', { dir: true })).toThrow('not empty');
     fs.remove('/a', { dir: true, recursive: true });
     expect(fs.stat('/a/b.txt')).toBeUndefined();
+  });
+
+  it('预先创建的目录和它们的上级目录不能 rmdir，其中的子目录照常可以', () => {
+    const fs = new FileStore(['/__wxa__/usr/s1', '/__wxa__/tmp/s1']);
+    fs.mkdir('/__wxa__/usr/s1/sub');
+    for (const dirPath of ['/__wxa__/usr/s1', 'http://localhost/__wxa__/usr/s1/', '/__wxa__/usr', '/__wxa__', '/', 'http://usr/']) {
+      expect(() => fs.execute('rmdir', { dirPath, recursive: true })).toThrow('operation not permitted');
+    }
+    fs.execute('rmdir', { dirPath: '/__wxa__/usr/s1/sub' });
+    expect(fs.readdir('/__wxa__/usr/s1')).toEqual([]);
+    expect(fs.readdir('/__wxa__/tmp/s1')).toEqual([]);
+  });
+
+  it('copyFile 复制内容，getFileInfo 给出字节数，unlink 删除文件但不能删目录', () => {
+    const fs = new FileStore(['/usr']);
+    fs.execute('writeFile', { filePath: '/usr/a.txt', data: '中文', encoding: 'utf8' });
+    fs.execute('copyFile', { srcPath: '/usr/a.txt', destPath: '/usr/b.txt' });
+    expect(fs.execute('readFile', { filePath: '/usr/b.txt', encoding: 'utf8' })).toEqual({ data: '中文' });
+    expect(fs.execute('getFileInfo', { filePath: '/usr/b.txt' })).toEqual({ size: 6 });
+
+    fs.execute('unlink', { filePath: '/usr/a.txt' });
+    expect(() => fs.execute('access', { path: '/usr/a.txt' })).toThrow('no such file or directory /usr/a.txt');
+    expect(fs.execute('access', { path: '/usr/b.txt' })).toEqual({});
+    expect(() => fs.execute('unlink', { filePath: '/usr' })).toThrow('operation not permitted');
+  });
+
+  it('不支持的操作报错并指出操作名', () => {
+    expect(() => new FileStore().execute('chmod', {})).toThrow('unsupported filesystem operation chmod');
   });
 });

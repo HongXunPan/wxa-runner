@@ -4,10 +4,9 @@ description: 小程序页面上的 window.__wxa_test_api__：不用 Playwright f
 
 # 测试 API
 
-wxa-runner 在浏览器页面上提供 `window.__wxa_test_api__`，用来读取页面状态、mock 原生 API、拦截请求、直接跳转页面。
-[Playwright 的 fixture](./testing.md) 就是基于它实现的。
+wxa-runner 在浏览器页面上提供 `window.__wxa_test_api__`，能读取页面状态、mock 原生 API、拦截请求、直接跳转页面，[Playwright fixture](./testing.md) 就是基于它实现的。
 
-用 Playwright 时推荐用 fixture，写起来更简单。不想多装一个包，或者用的是其他测试工具时，再直接调用这里的 API。
+用 Playwright 时推荐用 fixture，写起来更简单；用其他测试工具，或不想多装一个包时，再直接调用它。
 
 ## 在 Playwright 中直接使用
 
@@ -72,6 +71,7 @@ test.afterEach(async ({ page }) => {
 | --- | --- |
 | `ready` | 小程序启动完成后 resolve 的 Promise |
 | `currentPage()` / `pageStack()` | 当前页 / 整个页面栈，每页有 `path`、`query`、`webviewId`、`frameName`（可用于 `page.frame({ name })`） |
+| `webViews()` | 当前页的 web-view（还没设置 `src` 的不算），每个有 `src`；新窗口模式下还有网页窗口的名字 `windowName`，默认模式下为 `null` |
 | `waitForPage(path, timeout?)` | 等到指定页面成为当前页，默认超时 10 秒 |
 | `pageData(path?)` | 页面的 `data`（拷贝）。不传 `path` 时读当前页；页面不在页面栈里时为 `null` |
 | `callPageMethod(name, ...args)` | 调用当前页的方法，返回方法的返回值（返回 Promise 时等它完成）。参数要能 JSON 序列化 |
@@ -80,15 +80,14 @@ test.afterEach(async ({ page }) => {
 | `requests(pattern?)` / `clearRequests()` | 小程序发出的 `wx.request`：方法、地址、请求头、请求体 `data`、拦截它的规则 `routedBy`。被拦截的和真正发出的都有，只保留最近 1000 个 |
 | `navigateTo` / `navigateBack` / `redirectTo` / `reLaunch` / `switchTab` | 直接跳转页面，同 `wx` 上的同名 API |
 | `getStorage(key)` / `clearStorage()` | 读取 / 清空小程序的存储 |
-| `errors()` | 逻辑层、渲染层的运行时错误，以及业务代码调用过的未实现 API（`api` 为 API 名称，每个 API 记一次） |
+| `errors()` | 逻辑层、渲染层的运行时错误（包括被基础库捕获、只打印到控制台的），以及业务代码调用过的未实现 API（`api` 为 API 名称，每个 API 记一次） |
 
 `mock`、`route` 整页刷新后失效。详细说明见类型注释（`WxaTestApi`）。
 
 ## 启动前声明 mock 和拦截
 
-`App.onLaunch`、首页 `onLoad` 里就调用的 API，等 `ready` 之后再 mock 已经晚了。除了写进 [setup](./setup.md)，
-还可以在页面脚本执行前定义 `window.__wxa_before_launch__`。wxa-runner 在 setup 之后、小程序启动前调用它，等它完成后才启动小程序；
-这里的 mock 会覆盖 setup 里的同名 mock：
+`App.onLaunch`、首页 `onLoad` 里就调用的 API，等 `ready` 之后再 mock 就晚了。除了写进 [setup](./setup.md)，还可以在页面脚本执行前定义 `window.__wxa_before_launch__`：
+wxa-runner 在 setup 之后、小程序启动前调用它，等它完成才启动小程序，这里的 mock 覆盖 setup 里的同名 mock：
 
 ```ts
 await page.addInitScript(() => {
@@ -106,10 +105,8 @@ await page.goto('/');
 
 ## 类型
 
-上面示例第一行的引用为 `window.__wxa_test_api__` 提供类型，也可以写进 tsconfig 的 `compilerOptions.types`。
-需要把 `@open-wxa/wxa-runner-core` 加为开发依赖。
-
-编写 mock 时用到的 `ApiHandler`、`WxaTestApi` 等类型可以从 `@open-wxa/wxa-runner-core` 导入。
+把 `@open-wxa/wxa-runner-core` 加为开发依赖后，上面示例第一行的引用给 `window.__wxa_test_api__` 提供类型（也可以写进 tsconfig 的 `compilerOptions.types`）。
+写 mock 时用到的 `ApiHandler`、`WxaTestApi` 等类型也从这个包导入。
 
 ## 注意事项
 

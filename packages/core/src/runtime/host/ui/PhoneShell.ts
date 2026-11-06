@@ -8,6 +8,7 @@ import { element } from './dom';
 import { openImagePreview } from './ImagePreview';
 import { openPicker, PickerOptions, PickerSession } from './Picker';
 import { DEVICE_BEZEL, SHELL_CSS, STAGE_GAP, STAGE_PADDING } from './styles';
+import { TabBarItemView, tabBarView } from './tabBarView';
 
 export interface NavigationState {
   title: string;
@@ -17,13 +18,28 @@ export interface NavigationState {
   custom: boolean;
 }
 
-export interface TabBarConfig {
+export interface TabBarStyle {
   color?: string;
   selectedColor?: string;
   backgroundColor?: string;
   borderStyle?: string;
+}
+
+export interface TabBarConfig extends TabBarStyle {
   custom?: boolean;
-  list: Array<{ pagePath: string; text?: string; iconPath?: string; selectedIconPath?: string }>;
+  list: TabBarItem[];
+}
+
+/** 每一项右上角最多一个标记：徽标和红点互相替换 */
+export type TabBarMark = { type: 'text'; text: string } | { type: 'redDot' };
+
+export interface TabBarItem {
+  pagePath: string;
+  text?: string;
+  iconPath?: string;
+  selectedIconPath?: string;
+  /** null 表示清除 */
+  mark?: TabBarMark | null;
 }
 
 export interface SafeAreaInsets {
@@ -99,7 +115,10 @@ export class PhoneShell {
   private tabBarConfig: TabBarConfig | null = null;
   private onTabTap: (pagePath: string, index: number) => void = () => undefined;
   private navigation: NavigationState = { title: '', backgroundColor: '#000', textStyle: 'white', showBack: false, custom: false };
-  private tabBarVisible = false;
+  /** 当前页面是 tabBar 页面时为它的路径 */
+  private tabBarPath: string | null = null;
+  /** wx.hideTabBar 设置，对所有 tab 页生效，直到 wx.showTabBar */
+  private tabBarHidden = false;
 
   constructor(root: HTMLElement, private readonly profile: DeviceProfile) {
     const style = document.createElement('style');
@@ -229,9 +248,31 @@ export class PhoneShell {
     this.navBar.classList.toggle('is-loading', loading);
   }
 
-  /** 该页面是否显示原生 tabBar（自定义 tabBar 不算） */
+  /** 该页面是否显示原生 tabBar（自定义 tabBar、被 wx.hideTabBar 隐藏的都不算） */
   hasTabBar(pagePath: string): boolean {
-    return !!this.tabBarConfig?.list.some(item => item.pagePath === pagePath);
+    return !this.tabBarHidden && !!this.tabBarConfig?.list.some(item => item.pagePath === pagePath);
+  }
+
+  setTabBarHidden(hidden: boolean) {
+    this.tabBarHidden = hidden;
+    this.renderTabBar(this.tabBarPath);
+  }
+
+  /** 没有原生 tabBar（未配置或自定义 tabBar）时什么都不做 */
+  updateTabBarStyle(style: TabBarStyle) {
+    if (!this.tabBarConfig) return;
+    Object.assign(this.tabBarConfig, definedOnly(style));
+    this.renderTabBar(this.tabBarPath);
+  }
+
+  /** 返回 false 表示 index 越界；没有原生 tabBar 时什么都不做 */
+  updateTabBarItem(index: number, item: Partial<Omit<TabBarItem, 'pagePath'>>): boolean {
+    if (!this.tabBarConfig) return true;
+    const target = this.tabBarConfig.list[index];
+    if (!target) return false;
+    Object.assign(target, definedOnly(item));
+    this.renderTabBar(this.tabBarPath);
+    return true;
   }
 
   /**
@@ -250,38 +291,45 @@ export class PhoneShell {
   /** 当前页面是 tabBar 页面时传入它的路径，否则传 null */
   renderTabBar(selectedPath: string | null) {
     const config = this.tabBarConfig;
-    this.tabBarVisible = selectedPath !== null && this.hasTabBar(selectedPath);
-    this.tabBar.classList.toggle('is-hidden', !this.tabBarVisible);
-    if (!config || !this.tabBarVisible) return;
+    this.tabBarPath = selectedPath;
+    const visible = this.tabBarVisible();
+    this.tabBar.classList.toggle('is-hidden', !visible);
+    if (!config || !visible) return;
 
-    this.tabBar.style.background = config.backgroundColor || '#f7f7f7';
-    this.tabBar.style.borderTopColor = config.borderStyle === 'white' ? 'rgba(255,255,255,.3)' : 'rgba(0,0,0,.1)';
-    this.tabBar.innerHTML = '';
-    config.list.forEach((item, index) => {
-      const selected = item.pagePath === selectedPath;
-      const el = document.createElement('div');
-      el.className = 'wxa-tabbar-item' + (selected ? ' is-selected' : '');
-      el.dataset.pagePath = item.pagePath;
-      el.style.color = selected ? (config.selectedColor || '#07c160') : (config.color || '#7a7e83');
-      const icon = selected ? item.selectedIconPath || item.iconPath : item.iconPath;
-      if (icon) {
-        const img = document.createElement('img');
-        img.src = '/' + icon.replace(/^\//, '');
-        el.appendChild(img);
-      }
-      const text = document.createElement('span');
-      text.textContent = item.text || '';
-      el.appendChild(text);
-      el.addEventListener('click', () => this.onTabTap(item.pagePath, index));
-      this.tabBar.appendChild(el);
-    });
+    const view = tabBarView(config, selectedPath);
+    this.tabBar.style.background = view.background;
+    this.tabBar.style.borderTopColor = view.borderTopColor;
+    this.tabBar.replaceChildren(...view.items.map((item, index) => this.tabBarItemElement(item, index)));
+  }
+
+  private tabBarItemElement(item: TabBarItemView, index: number): HTMLElement {
+    const el = element('div', 'wxa-tabbar-item' + (item.selected ? ' is-selected' : ''));
+    el.dataset.pagePath = item.pagePath;
+    el.style.color = item.color;
+    const iconBox = element('span', 'wxa-tabbar-icon');
+    if (item.icon) {
+      const img = document.createElement('img');
+      img.src = item.icon;
+      iconBox.appendChild(img);
+      el.appendChild(iconBox);
+    }
+    const text = element('span', 'wxa-tabbar-text', item.text);
+    el.appendChild(text);
+    // 没有图标时标记挂在文字右上角
+    if (item.mark) (item.icon ? iconBox : text).appendChild(markElement(item.mark));
+    el.addEventListener('click', () => this.onTabTap(item.pagePath, index));
+    return el;
+  }
+
+  private tabBarVisible(): boolean {
+    return this.tabBarPath !== null && this.hasTabBar(this.tabBarPath);
   }
 
   /** 页面可用高度，与 getSystemInfo().windowHeight 对应；tabBar 会连同底部安全区一起占掉 */
   windowHeight(): number {
     return this.profile.screenHeight
       - this.screenTop()
-      - (this.tabBarVisible ? TAB_BAR_HEIGHT + this.profile.safeAreaBottom : 0);
+      - (this.tabBarVisible() ? TAB_BAR_HEIGHT + this.profile.safeAreaBottom : 0);
   }
 
   /** 页面窗口顶部到屏幕顶部的距离，与 getWindowInfo().screenTop 对应 */
@@ -401,7 +449,7 @@ export class PhoneShell {
   }
 
   /**
-   * 在手机外面提示 wxa-runner 自身的问题（如真实登录失败），不混进小程序的界面。
+   * 在手机外面提示 wxa-runner 自身的问题（如借用开发者工具登录态失败），不混进小程序的界面。
    * 同一时间只显示一条，新的替换旧的：业务代码反复重试时不会堆满屏幕
    */
   showNotice(title: string, message: string) {
@@ -436,6 +484,15 @@ export class PhoneShell {
   clearError() {
     this.device.querySelector('.wxa-error')?.remove();
   }
+}
+
+function markElement(mark: TabBarMark): HTMLElement {
+  return mark.type === 'redDot' ? element('span', 'wxa-tabbar-dot') : element('span', 'wxa-tabbar-badge', mark.text);
+}
+
+/** wx 接口没传的字段是 undefined，合并时不能覆盖原值 */
+function definedOnly<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 function maskElement(dim: boolean): HTMLElement {

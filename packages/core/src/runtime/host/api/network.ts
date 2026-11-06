@@ -2,25 +2,31 @@
  * 网络 API：wx.request / downloadFile / uploadFile / connectSocket
  *
  * 基础库 3.x 的协议是「创建任务同步返回 taskId，结果通过 on<Type>TaskStateChange 事件推送」。
- * HTTP 请求经开发服务器的 /__wxa__/proxy 转发：既绕开 CORS，也能携带浏览器禁止设置的
- * cookie / referer 等请求头。
+ * HTTP 请求经开发服务器的 /__wxa__/proxy/ 转发：既绕开 CORS，也能携带浏览器禁止设置的
+ * cookie / referer 等请求头。地址的写法见 networkPanel.ts
  *
  * 基础库自己的请求（数据上报、配置拉取等）不发出，只放行 InnerAudioContext 下载音频，见 byCaller。
  */
 
 import type { MockRequest } from '../../../setup';
+import { PROXY_PREFIX, toServerPath } from '../../networkPanel';
 import { ApiHandler, fail, ok } from './registry';
-import type { RequestRoutes } from './routes';
+import type { MockedResponse, RequestRoutes } from './routes';
 import { saveTempFile, tempFileType } from './tempFiles';
 
 export interface NetworkApiOptions {
+  /** 开发服务器是否支持同源 WebSocket 代理 */
+  socketProxy?: boolean;
   /** 向逻辑层派发事件 */
   emit: (event: string, data: Record<string, unknown>) => void;
   defaultTimeout: () => number;
+  defaultSocketTimeout?: () => number;
   /** 请求拦截，只作用于 wx.request */
   routes?: RequestRoutes;
   /** wx.request 发出时调用，早于拦截和转发 */
   onRequest?: (request: RecordedRequest) => void;
+  /** 被拦截的 wx.request 开始生成响应时调用，用来在 Network 面板里显示它（见 mockMirror.ts）；signal 在请求取消、超时时 abort */
+  onMocked?: (request: MockRequest, response: Promise<MockedResponse>, signal: AbortSignal) => void;
 }
 
 /** 小程序发出的一个 wx.request */
@@ -62,6 +68,7 @@ let taskSeq = 0;
 export function createNetworkApis(options: NetworkApiOptions): Record<string, ApiHandler> {
   const controllers = new Map<string, AbortController>();
   const sockets = new Map<string, WebSocket>();
+  const pendingSockets = new Set<string>();
   const { emit } = options;
 
   const startTask = (args: any, run: (signal: AbortSignal, id: string) => Promise<void>): string => {
@@ -92,15 +99,44 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
 
     const requestTaskId = startTask(args, async (signal, id) => {
       try {
-        const mocked = route && await route.respond(signal);
+        const mocked = route?.respond(signal);
+        if (mocked) options.onMocked?.(request, mocked, signal);
         const res: ProxyResponse = mocked
-          ? { statusCode: mocked.statusCode, header: mocked.header, cookies: [], response: new Response(mocked.body) }
+          ? await mocked.then(({ statusCode, header, body }) => ({ statusCode, header, cookies: [], response: new Response(body) }))
           : await proxyFetch(request.url, { method: request.method, header: args.header, body: args.data, signal });
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'headersReceived', header: res.header, statusCode: res.statusCode, cookies: res.cookies
         });
         // 和真机一样由 responseType 决定拿到文本还是 ArrayBuffer，与响应内容无关，拦截规则给的响应也是
-        const data = args.responseType === 'arraybuffer' ? await res.response.arrayBuffer() : await res.response.text();
+        let data: string | ArrayBuffer;
+        if (args.enableChunked && res.response.body) {
+          const reader = res.response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let length = 0;
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              length += value.byteLength;
+              emit('onRequestTaskStateChange', {
+                requestTaskId: id, state: 'chunked', data: value.slice().buffer
+              });
+            }
+          } finally {
+            reader.releaseLock();
+          }
+          // success 仍返回完整响应；先拼字节再解码，避免 UTF-8 字符跨块时被破坏。
+          const bytes = new Uint8Array(length);
+          let offset = 0;
+          for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+          data = args.responseType === 'arraybuffer' ? bytes.buffer : new TextDecoder().decode(bytes);
+        } else {
+          data = args.responseType === 'arraybuffer' ? await res.response.arrayBuffer() : await res.response.text();
+        }
         emit('onRequestTaskStateChange', {
           requestTaskId: id, state: 'success', data, statusCode: res.statusCode, header: res.header, cookies: res.cookies, profile: {}
         });
@@ -141,7 +177,9 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
   const createUploadTask: ApiHandler = (args, { api }) => {
     const uploadTaskId = startTask(args, async (signal, id) => {
       try {
-        const file = await (await fetch(args.filePath)).blob();
+        const source = await fetch(args.filePath);
+        if (!source.ok) throw new Error(`file not exist ${args.filePath}`);
+        const file = await source.blob();
         const form = new FormData();
         for (const [key, value] of Object.entries(args.formData || {})) form.append(key, String(value));
         form.append(args.name || 'file', file, String(args.filePath).split('/').pop() || 'file');
@@ -163,17 +201,39 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     const socketTaskId = String(++taskSeq);
     let socket: WebSocket;
     try {
-      socket = new WebSocket(args.url, args.protocols && args.protocols.length ? args.protocols : undefined);
+      if (options.socketProxy) {
+        const url = new URL('/__wxa__/socket', location.href);
+        url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(url);
+        pendingSockets.add(socketTaskId);
+      } else socket = new WebSocket(args.url, args.protocols && args.protocols.length ? args.protocols : undefined);
     } catch (error) {
       return fail(api, reason(error));
     }
     socket.binaryType = 'arraybuffer';
     sockets.set(socketTaskId, socket);
-    socket.onopen = () => emit('onSocketTaskStateChange', { socketTaskId, state: 'open', header: {}, profile: {} });
-    socket.onmessage = event => emit('onSocketTaskStateChange', { socketTaskId, state: 'message', data: event.data });
-    socket.onerror = () => emit('onSocketTaskStateChange', { socketTaskId, state: 'error', errMsg: 'connectSocket:fail' });
+    let failed = false;
+    const onError = () => {
+      failed = true;
+      emit('onSocketTaskStateChange', { socketTaskId, state: 'error', errMsg: 'connectSocket:fail' });
+    };
+    socket.onopen = () => {
+      if (options.socketProxy) socket.send(JSON.stringify({
+        url: args.url, header: args.header, protocols: args.protocols, timeout: args.timeout || options.defaultSocketTimeout?.() || 60000
+      }));
+      else emit('onSocketTaskStateChange', { socketTaskId, state: 'open', header: {}, profile: {} });
+    };
+    socket.onmessage = event => {
+      if (pendingSockets.has(socketTaskId)) {
+        const result = JSON.parse(event.data);
+        pendingSockets.delete(socketTaskId);
+        emit('onSocketTaskStateChange', { socketTaskId, state: 'open', header: result.header, profile: {} });
+      } else emit('onSocketTaskStateChange', { socketTaskId, state: 'message', data: event.data });
+    };
+    socket.onerror = onError;
     socket.onclose = event => {
       sockets.delete(socketTaskId);
+      if (pendingSockets.delete(socketTaskId) && !failed) onError();
       emit('onSocketTaskStateChange', { socketTaskId, state: 'close', code: event.code, reason: event.reason });
     };
     return ok(api, { socketTaskId });
@@ -183,7 +243,7 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
     const socket = sockets.get(String(args.socketTaskId));
     if (!socket) return fail(api, 'socket task not found');
     if (args.operationType === 'send') {
-      if (socket.readyState !== WebSocket.OPEN) return fail(api, 'socket is not open');
+      if (pendingSockets.has(String(args.socketTaskId)) || socket.readyState !== WebSocket.OPEN) return fail(api, 'socket is not open');
       socket.send(args.data);
     } else if (args.operationType === 'close') {
       socket.close(args.code || 1000, args.reason);
@@ -231,13 +291,18 @@ export function createNetworkApis(options: NetworkApiOptions): Record<string, Ap
 const rejectBaseLib: ApiHandler = (_args, { api }) => fail(api, '基础库内部的网络请求，wxa-runner 不发出');
 
 /**
- * 小程序的请求交给 forApp；基础库自己的网络请求（数据上报、配置拉取等）默认直接按失败返回：不发往网络，也不记入请求记录
+ * 小程序（含插件）的请求交给 forApp；基础库自己的网络请求（数据上报、配置拉取等）默认直接按失败返回：不发往网络，也不记入请求记录
  *
  * 它们连的是微信后台，与被测的小程序无关，测试和 CI 里不该因此产生对外请求。基础库通过
- * _requestSkipCheckDomain 一类内部接口发出，带 __skipDomainCheck__ 标记；小程序的 wx.request 不带
+ * _requestSkipCheckDomain 一类内部接口发出，带 __skipDomainCheck__ 标记；小程序的 wx.request 不带。
+ * 插件的请求也带这个标记（基础库已按插件的域名校验过），但同时带着插件签名头 X-WECHAT-HOSTSIGN
  */
 function byCaller(forApp: ApiHandler, forBaseLib = rejectBaseLib): ApiHandler {
-  return (args, context) => (args?.__skipDomainCheck__ === true ? forBaseLib(args, context) : forApp(args, context));
+  return (args, context) => (args?.__skipDomainCheck__ === true && !hasPluginSign(args) ? forBaseLib(args, context) : forApp(args, context));
+}
+
+function hasPluginSign(args: any): boolean {
+  return Object.keys(args.header || {}).some(name => name.toLowerCase() === 'x-wechat-hostsign');
 }
 
 /**
@@ -253,13 +318,13 @@ export async function proxyFetch(
   url: string,
   init: { method: string; header?: Record<string, string>; body?: unknown; signal?: AbortSignal }
 ): Promise<ProxyResponse> {
-  if (!/^https?:\/\//i.test(url)) throw new Error(`invalid url "${url}"`);
+  const path = toServerPath(PROXY_PREFIX, url);
+  if (!path) throw new Error(`invalid url "${url}"`);
 
-  const hasBody = init.body !== undefined && init.body !== '' && !['GET', 'HEAD'].includes(init.method);
-  const response = await fetch(`/__wxa__/proxy?url=${encodeURIComponent(url)}`, {
+  const response = await fetch(path, {
     method: init.method,
     headers: { 'x-wxa-headers': JSON.stringify(init.header || {}) },
-    body: hasBody ? init.body as BodyInit : undefined,
+    body: hasRequestBody(init.method, init.body) ? init.body as BodyInit : undefined,
     signal: init.signal
   });
 
@@ -273,6 +338,11 @@ export async function proxyFetch(
     cookies: JSON.parse(decodeURIComponent(response.headers.get('x-wxa-set-cookie') || '%5B%5D')),
     response
   };
+}
+
+/** fetch 不允许 GET、HEAD 带请求体；空字符串也不发，和不带一样 */
+export function hasRequestBody(method: string, body: unknown): boolean {
+  return body !== undefined && body !== '' && !['GET', 'HEAD'].includes(method);
 }
 
 function reason(error: unknown): string {

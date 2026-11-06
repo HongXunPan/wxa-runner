@@ -8,6 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { readStyleSetting, StyleSetting } from './StyleMirror';
 
 export interface AppJson {
   pages: string[];
@@ -21,7 +22,8 @@ export interface AppJson {
   subPackages?: Array<{ root: string; pages: string[]; independent?: boolean; [key: string]: any }>;
   subpackages?: AppJson['subPackages'];
   usingComponents?: Record<string, string>;
-  workers?: string | { path: string };
+  /** isSubpackage：Worker 代码作为分包，业务先调 wx.preDownloadSubpackage({ packageType: 'workers' }) 再创建 Worker */
+  workers?: string | { path: string; isSubpackage?: boolean };
   [key: string]: any;
 }
 
@@ -51,6 +53,11 @@ export class MiniProgram {
     }
   }
 
+  /** project.config.json 里与 less / sass 编译插件有关的设置；每次重新读取，开发中修改了也能生效 */
+  get styleSetting(): StyleSetting {
+    return readStyleSetting(readJsonFile(path.join(this.projectPath, 'project.config.json'))?.setting);
+  }
+
   readAppJson(): AppJson {
     const app = readJsonFile(path.join(this.root, 'app.json'));
     if (!app || !Array.isArray(app.pages) || app.pages.length === 0) {
@@ -61,6 +68,12 @@ export class MiniProgram {
 
   subPackages(app: AppJson) {
     return app.subPackages || app.subpackages || [];
+  }
+
+  /** Worker 代码所在目录，不带首尾的 /；没有配置 workers 时为 null */
+  workersDir(app: AppJson): string | null {
+    const dir = typeof app.workers === 'string' ? app.workers : app.workers?.path;
+    return dir ? path.posix.normalize(dir).replace(/^\/+|\/+$/g, '') : null;
   }
 
   /** 主包页面 + 分包页面（带 root 前缀） */
@@ -75,16 +88,35 @@ export class MiniProgram {
     return pages;
   }
 
-  /** 读取并预处理页面/组件 json，id 不带扩展名 */
+  /**
+   * 读取并预处理页面/组件 json，id 不带扩展名。
+   * 基础库运行时只把组件引用和当前路径拼在一起，不查找 miniprogram_npm、不补 /index（开发者工具编译时已解析好），
+   * 所以能解析到的引用都换成组件的绝对路径
+   */
   readUnitJson(id: string, app: AppJson): UnitJson {
-    const json: UnitJson = { ...(readJsonFile(path.join(this.root, id + '.json')) || {}) };
-    json.usingComponents = { ...(json.usingComponents || {}) };
+    const json: UnitJson = { ...readJsonFile(path.join(this.root, id + '.json')) };
+    const resolve = (fromId: string, ref: string) => {
+      const resolved = this.resolveComponent(fromId, ref);
+      return resolved ? '/' + resolved : null;
+    };
 
-    if (!id.startsWith('miniprogram_npm/') && !this.isInIndependentSubPackage(id, app)) {
+    json.usingComponents = Object.fromEntries(
+      Object.entries(json.usingComponents || {}).map(([tag, ref]) => [tag, resolve(id, ref as string) ?? ref])
+    );
+    if (json.componentGenerics) {
+      json.componentGenerics = Object.fromEntries(Object.entries(json.componentGenerics).map(([name, generic]) => [
+        name,
+        typeof generic === 'object' && generic.default ? { ...generic, default: resolve(id, generic.default) ?? generic.default } : generic
+      ]));
+    }
+
+    if (!/(^|\/)miniprogram_npm\//.test(id) && !this.isInIndependentSubPackage(id, app)) {
       for (const [tag, ref] of Object.entries(app.usingComponents || {})) {
         if (json.usingComponents[tag]) continue;
-        if (ref.startsWith('/') || ref.startsWith('plugin://')) {
-          json.usingComponents[tag] = ref;
+        // 全局引用相对 app.json 解析；解析不到的相对路径照旧换算成相对当前页面
+        const resolved = resolve('app', ref);
+        if (resolved || ref.startsWith('/') || /^plugin(-private)?:\/\//.test(ref)) {
+          json.usingComponents[tag] = resolved ?? ref;
         } else {
           const relative = path.posix.relative(path.posix.dirname(id), ref);
           json.usingComponents[tag] = relative.startsWith('.') ? relative : './' + relative;
@@ -155,16 +187,15 @@ export class MiniProgram {
   }
 
   /** 列出代码根目录下指定扩展名的文件，返回 posix 风格的相对路径 */
-  listFiles(extensions: string[], excludeDirs: string[] = []): string[] {
+  listFiles(extensions: string[]): string[] {
     const result: string[] = [];
-    const excluded = new Set(excludeDirs.map(dir => dir.replace(/^\/|\/$/g, '')));
 
     const walk = (dir: string, rel: string) => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue;
         const childRel = rel ? `${rel}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-          if (!excluded.has(childRel)) walk(path.join(dir, entry.name), childRel);
+          walk(path.join(dir, entry.name), childRel);
         } else if (extensions.some(ext => entry.name.endsWith(ext))) {
           if (!rel && PROJECT_FILES.has(entry.name)) continue;
           result.push(childRel);

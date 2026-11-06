@@ -8,7 +8,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { Browser, chromium, Frame, Page } from 'playwright';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DevServer } from '../../packages/core/src/server/DevServer';
 import { EXAMPLES, REPO_ROOT } from '../helpers';
 import { CHROME, chromeLaunchOptions, e2eReady } from './runner';
@@ -142,6 +142,75 @@ describe.skipIf(!e2eReady)('showcase 示例', () => {
     expect(await padding('#detail-inline', 'Top')).toBe('0px');
   });
 
+  it('wx.hideTabBar 隐藏原生 tabBar，页面窗口延伸到屏幕底边，切换 tab 后仍隐藏，wx.showTabBar 恢复', async () => {
+    const frameHeight = async () => (await page.locator('iframe[data-current]').boundingBox())!.height;
+    const safeBottom = () => current().locator('#index-safe-bottom').evaluate(el => getComputedStyle(el).paddingBottom);
+    const tabBarVisible = () => page.isVisible('.wxa-tabbar');
+
+    await open('/?path=pages/lab/lab');
+    // iPhone X：状态栏 44 + 导航栏 44，tabBar 50 + 底部安全区 34
+    expect(await frameHeight()).toBe(812 - 88 - 84);
+
+    await page.evaluate(() => window.__wxa_test_api__.callPageMethod('hideTabBar'));
+    expect(await tabBarVisible()).toBe(false);
+    expect(await frameHeight()).toBe(812 - 88);
+
+    await page.evaluate(() => window.__wxa_test_api__.switchTab('/pages/index/index'));
+    expect(await tabBarVisible()).toBe(false);
+    expect(await safeBottom()).toBe('34px');
+
+    await page.evaluate(() => window.__wxa_test_api__.switchTab('/pages/lab/lab'));
+    await page.evaluate(() => window.__wxa_test_api__.callPageMethod('showTabBar'));
+    expect(await tabBarVisible()).toBe(true);
+    expect(await frameHeight()).toBe(812 - 88 - 84);
+    await page.evaluate(() => window.__wxa_test_api__.switchTab('/pages/index/index'));
+    expect(await safeBottom()).toBe('0px');
+  });
+
+  it('tabBar 徽标、红点、样式和文字可以动态修改', async () => {
+    const item = (pagePath: string) => page.locator(`.wxa-tabbar-item[data-page-path="${pagePath}"]`);
+    const badge = item('pages/mine/mine').locator('.wxa-tabbar-badge');
+    const dot = item('pages/index/index').locator('.wxa-tabbar-dot');
+    // 基础库的 tabBar 接口是异步的，调用页面方法后要等界面和日志更新
+    const callLab = (method: string) => page.evaluate(m => window.__wxa_test_api__.callPageMethod(m), method);
+    const waitForLog = (text: string) => page.waitForFunction(
+      t => (window.__wxa_test_api__.pageData()!.logs as Array<{ text: string }>).some(log => log.text.includes(t)),
+      text
+    );
+
+    await open('/?path=pages/lab/lab');
+    await callLab('setBadge');
+    await waitForLog('setTabBarBadge:ok');
+    expect(await badge.textContent()).toBe('9');
+    await callLab('showRedDot');
+    await waitForLog('showTabBarRedDot:ok');
+    expect(await dot.count()).toBe(1);
+
+    // 切换页面后标记仍在，选中态照常切换
+    await page.click('.wxa-tabbar-item[data-page-path="pages/mine/mine"]');
+    await waitForPage('pages/mine/mine');
+    expect(await badge.textContent()).toBe('9');
+    expect(await item('pages/mine/mine').getAttribute('class')).toContain('is-selected');
+    await page.evaluate(() => window.__wxa_test_api__.switchTab('/pages/lab/lab'));
+
+    await callLab('removeBadge');
+    await waitForLog('removeTabBarBadge:ok');
+    await callLab('hideRedDot');
+    await waitForLog('hideTabBarRedDot:ok');
+    expect(await badge.count()).toBe(0);
+    expect(await dot.count()).toBe(0);
+
+    await callLab('toggleStyle');
+    await waitForLog('setTabBarStyle:ok');
+    expect(await page.locator('.wxa-tabbar').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(30, 30, 30)');
+    expect(await item('pages/lab/lab').evaluate(el => getComputedStyle(el).color)).toBe('rgb(255, 214, 102)');
+    expect(await item('pages/mine/mine').evaluate(el => getComputedStyle(el).color)).toBe('rgb(187, 187, 187)');
+
+    await callLab('toggleItem');
+    await waitForLog('setTabBarItem:ok');
+    expect(await item('pages/lab/lab').textContent()).toBe('改过的');
+  });
+
   it('自动化环境默认按 1:1 显示手机，截图即真实尺寸', async () => {
     await open();
     expect((await page.locator('.wxa-device').boundingBox())!.height).toBe(812);
@@ -207,10 +276,60 @@ describe.skipIf(!e2eReady)('showcase 示例', () => {
     }
   });
 
+  it('用鼠标横向拖动 swiper 能翻页，按下后先抖出的 1px 竖向位移不会让拖动被当成竖向滑动', async () => {
+    const frame = await open('/?path=pages/gesture/gesture');
+    const swiper = frame.locator('wx-swiper');
+    await swiper.scrollIntoViewIfNeeded();
+    const box = (await swiper.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x + 75, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 75, y + 1);
+    await page.mouse.move(x - 75, y + 1, { steps: 10 });
+    await page.mouse.up();
+    await vi.waitFor(async () => {
+      const logs = await page.evaluate(() => (window.__wxa_test_api__.pageData()!.logs as { text: string }[]).map(line => line.text));
+      expect(logs).toContainEqual(expect.stringContaining('change {"current":1,'));
+    });
+  });
+
+  it('用鼠标拖动 movable-view 不到 8px 就松手，这段小位移也会生效', async () => {
+    const frame = await open('/?path=pages/gesture/gesture');
+    const movable = frame.locator('wx-movable-view');
+    await movable.scrollIntoViewIfNeeded();
+    const box = (await movable.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 5, y, { steps: 5 });
+    await page.mouse.up();
+    await vi.waitFor(async () => {
+      const { move } = (await page.evaluate(() => window.__wxa_test_api__.pageData()))!;
+      expect(move).toMatch(/^x=5 y=0 /);
+    });
+  });
+
   it('通过 ?path= 直接打开指定页面，Storage 可以从测试中读取', async () => {
     const frame = await open('/?path=pages/detail/detail&id=7');
     expect(await frame.textContent('#detail-id')).toBe('id = 7');
     expect(await page.evaluate(() => typeof window.__wxa_test_api__.getStorage('showcase:visits'))).toBe('number');
+  });
+
+  it('开启 less 编译插件后，只有 .less 的页面用上 app.less 的变量和 @import 的 mixin', async () => {
+    const frame = await open('/?path=pages/mine/mine');
+    const style = (selector: string) => frame.evaluate(s => {
+      const { color, paddingTop, backgroundColor, borderRadius, marginRight } = getComputedStyle(document.querySelector(s)!);
+      return { color, paddingTop, backgroundColor, borderRadius, marginRight };
+    }, selector);
+    // @brand 来自 app.less；16rpx 在 375 宽的设备上是 8px
+    expect(await style('.title')).toMatchObject({ color: 'rgb(7, 193, 96)' });
+    expect(await style('#mine-visits')).toMatchObject({ paddingTop: '8px' });
+    // .pill() 来自 styles/mixins.less
+    expect(await style('.tag')).toMatchObject({ backgroundColor: 'rgb(7, 193, 96)', color: 'rgb(255, 255, 255)', marginRight: '4px' });
+    // app.less 自己的规则照常生效
+    expect(await frame.evaluate(() => getComputedStyle(document.querySelector('.card')!).padding)).toBe('12px');
   });
 
   it('默认字号固定为 16px，不受浏览器字号设置影响', async () => {

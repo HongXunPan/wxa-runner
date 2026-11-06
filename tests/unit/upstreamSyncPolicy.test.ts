@@ -337,16 +337,24 @@ describe('上游同步工作流静态契约', () => {
     expect(verify).toContain('uses: ./.github/workflows/ci.yml');
     expect(verify).not.toContain(': write');
     expect(workflow).not.toContain('secrets: inherit');
-    expect(ci.match(/persist-credentials: false/g)).toHaveLength(2);
+    const checkouts = ci.match(/- uses: actions\/checkout@v4\n {8}with:\n(?: {10}[^\n]+\n)+/g) ?? [];
+    expect(checkouts).toHaveLength(3);
+    for (const checkout of checkouts) {
+      expect(checkout).toContain('ref: ${{ inputs.candidate-sha }}');
+      expect(checkout).toContain('persist-credentials: false');
+    }
     expect(ci).toContain("github.event_name == 'pull_request' || inputs.candidate-sha != ''");
     expect(ci).toContain('pnpm exec commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose');
     expect(ci).toContain('node scripts/check-branch-name.mjs "$BRANCH"');
   });
 
   it('CI 保留完整测试和只打包试跑，不调用发布或文档任务', () => {
-    for (const command of ['pnpm build', 'pnpm test', 'pnpm test:playwright', 'node scripts/release.mjs --dry-run']) {
+    const commands = ['pnpm lint', 'pnpm build', 'pnpm test --shard=', 'pnpm test:playwright --shard=', 'node scripts/release.mjs --dry-run'];
+    for (const command of commands) {
       expect(ci).toContain(`run: ${command}`);
     }
+    expect(ci.split("if: github.event_name == 'pull_request' && inputs.candidate-sha == ''")).toHaveLength(3);
+    expect(ci).toContain('needs: test-part');
     expect(workflow).not.toContain('uses: ./.github/workflows/release.yml');
     expect(workflow).not.toContain('uses: ./.github/workflows/docs.yml');
   });

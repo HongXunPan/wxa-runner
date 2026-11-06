@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import zlib from 'zlib';
 import { findCompilerBinaries } from '../packages/compiler/src/locate';
 import { listBaseLibs } from '../packages/extractor/src/baselib';
 
@@ -18,11 +19,11 @@ export function createProject(files: Record<string, string | object>): string {
   return root;
 }
 
-/** 按 .wxvpkg 格式打包，用于测试解包器 */
-export function packWxvpkg(files: Record<string, string>): Buffer {
+/** 按 .wxvpkg 格式打包（基础库、插件代码包都是这个格式），Buffer 原样写入 */
+export function packWxvpkg(files: Record<string, string | Buffer>): Buffer {
   const entries = Object.entries(files).map(([name, content]) => ({
     name: Buffer.from(name, 'utf8'),
-    data: Buffer.from(content, 'utf8')
+    data: Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
   }));
   const indexSize = 4 + entries.reduce((sum, entry) => sum + 12 + entry.name.length, 0);
   const header = Buffer.alloc(14);
@@ -83,4 +84,30 @@ export function hasToolchain(): boolean {
   } catch {
     return false;
   }
+}
+
+/** 生成指定尺寸的纯色 PNG，默认灰色 */
+export function png(width: number, height: number, rgb: [number, number, number] = [0x80, 0x80, 0x80]): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // 每个颜色分量 8 位
+  header[9] = 2; // RGB
+  // 每行以过滤类型（0 表示不过滤）开头
+  const row = Buffer.concat([Buffer.from([0]), ...Array.from({ length: width }, () => Buffer.from(rgb))]);
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', zlib.deflateSync(pixels)),
+    chunk('IEND', Buffer.alloc(0))
+  ]);
 }

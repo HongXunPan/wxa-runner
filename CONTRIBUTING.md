@@ -11,7 +11,8 @@ packages/
   core/        @open-wxa/wxa-runner-core       项目构建、开发服务器、浏览器端运行时
   cli/         wxa-runner                      命令行（包名不带 scope，npx wxa-runner 直接可用）
   playwright/  @open-wxa/wxa-runner-playwright Playwright fixture
-examples/      showcase（覆盖主要功能）、hello-world、tabbar、custom-tabbar（自定义 tabBar）、subpackages（分包预下载和分包异步化）
+  viewer/      @open-wxa/wxa-viewer            把小程序打成 .wxapack 在浏览器里运行，命令是 wxa-runner viewer（private，不发布；只用 core 的公开导出）
+examples/      showcase（覆盖主要功能，「能力」页逐项对照原生组件和 API）、hello-world（发布前试跑用）、custom-tabbar（自定义 tabBar）、subpackages（分包预下载和分包异步化）、worker（Worker）
 tests/         unit / integration / e2e，playwright（用 fixture 写的用例）
 docs/          使用文档，同时是 VitePress 文档站点的源文件
 ```
@@ -25,21 +26,32 @@ pnpm test            # 单元 + 集成 + e2e
 pnpm test:playwright # tests/playwright，用 Playwright 的 test runner 跑，需要先 pnpm build
 pnpm test:coverage
 WXA_BASELIB=3.8.8 pnpm test  # 在指定的基础库版本上跑全部测试（不指定时用默认选中的版本）
+pnpm lint            # oxlint，有警告也算失败，CI 会跑
+pnpm format <文件>   # oxfmt 格式化指定的 ts/js 文件
 
 node packages/cli/bin/wxa-runner.js dev examples/showcase --open   # 用源码运行示例
 ```
 
 - 找不到编译器、基础库或 Chrome 时，依赖它们的用例会自动跳过；`pnpm test:playwright` 不跳过，找不到时直接报错
-- e2e 默认使用 `/Applications/Google Chrome.app`，其他位置通过环境变量 `WXA_CHROME` 指定，如 Linux 上
+- e2e 默认使用 Chrome 的默认安装位置（macOS 的 `/Applications/Google Chrome.app`，Windows 的 `Program Files`、`%LOCALAPPDATA%` 下的 `chrome.exe`），其他位置通过环境变量 `WXA_CHROME` 指定，如 Linux 上
   `WXA_CHROME=/usr/bin/google-chrome pnpm test`
 - 本机没有开发者工具时，`pnpm install` 装上的内置基础库和 miniprogram-compiler 就够跑全部测试
+- 现有代码是手工排版的，CI 不检查格式，也不要整仓库跑 `pnpm format`：只格式化自己新写或大改的文件，
+  配置在 `.oxfmtrc.json`
 
 ## CI
 
-[.github/workflows/ci.yml](./.github/workflows/ci.yml) 在 ubuntu-latest 上跑全部测试（`pnpm test` 和 `pnpm test:playwright`），
-测试前先确认编译器、基础库和 Chrome 都找得到：缺少时依赖它们的用例会自动跳过，CI 却显示通过。
-最后用 `node scripts/release.mjs --dry-run` 打包全部 npm 包，像外部用户一样在新目录里用 npm 安装，确认
+[.github/workflows/ci.yml](./.github/workflows/ci.yml) 跑 `pnpm lint`，并在多台 ubuntu-latest 机器上并行跑全部测试
+（`pnpm test` 和 `pnpm test:playwright` 都分片），测试前先确认编译器、基础库和 Chrome 都找得到：
+缺少时依赖它们的用例会自动跳过，CI 却显示通过。
+另有一台用 `node scripts/release.mjs --dry-run` 打包全部 npm 包，像外部用户一样在新目录里用 npm 安装，确认
 `wxa-runner dev` 能启动示例项目、用上内置基础库和 miniprogram-compiler。
+
+单个测试文件只能在一台机器上跑，CI 的总耗时取决于最慢的那个文件，很慢的测试文件要按主题拆开。
+
+只改了文档（`**/*.md`、`docs/`）的 PR 会跳过 lint 和测试（必需检查照常上报，不会卡住合并），
+测试会读的文档（`docs/test-api.md`）除外；
+同一个 PR 连着推送时只跑最新一次，旧的自动取消；推送到 main 的每次提交都完整跑一遍。
 
 ## 文档站点
 

@@ -9,11 +9,19 @@ import path from 'path';
 import { chromium, Frame, LaunchOptions, Page } from 'playwright';
 import { expect } from 'vitest';
 import { listBaseLibs } from '../../packages/extractor/src/baselib';
-import { DevServer } from '../../packages/core/src/server/DevServer';
+import { withEagerSourcePositions } from '../../packages/playwright/src/launchOptions';
+import { DevServer, DevServerOptions } from '../../packages/core/src/server/DevServer';
 import { createProject, hasToolchain, REPO_ROOT } from '../helpers';
 
 const RUNTIME_DIR = path.join(REPO_ROOT, 'packages/core/dist/runtime');
-export const CHROME = process.env.WXA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+/** Chrome 的默认安装位置：macOS，Windows 的全局安装和用户级安装 */
+const DEFAULT_CHROMES = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  ...[process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA]
+    .filter(dir => dir)
+    .map(dir => path.join(dir!, 'Google/Chrome/Application/chrome.exe'))
+];
+export const CHROME = process.env.WXA_CHROME || DEFAULT_CHROMES.find(file => fs.existsSync(file)) || DEFAULT_CHROMES[0];
 
 export const e2eReady = hasToolchain() && fs.existsSync(path.join(RUNTIME_DIR, 'host.js')) && fs.existsSync(CHROME);
 
@@ -26,12 +34,15 @@ export const installedBaseLibs = e2eReady ? new Set(listBaseLibs().map(lib => li
  *
  * macOS 上关掉了 App Nap：没有窗口的 Chrome 偶尔会在申请 App Nap 断言时一直等系统服务 RunningBoard，主线程卡住后
  * launch、newContext、newPage 都不再返回，多个 Chrome 同时运行时更容易遇到（#37）。
- * launchPersistentContext 不能用：它在命令行末尾加了 about:blank，再加上关 App Nap 的参数，headless 模式会拒绝启动
+ * launchPersistentContext 不能用：它在命令行末尾加了 about:blank，再加上关 App Nap 的参数，headless 模式会拒绝启动。
+ * 和 Playwright fixture 一样让 V8 编译时就记下源码位置，见 withEagerSourcePositions
  */
-export const chromeLaunchOptions: LaunchOptions =
-  process.platform === 'darwin'
+export const chromeLaunchOptions: LaunchOptions = {
+  ...(process.platform === 'darwin'
     ? { executablePath: path.join(__dirname, 'chrome-no-app-nap.sh'), env: { ...process.env, WXA_CHROME_BINARY: CHROME } }
-    : { executablePath: CHROME };
+    : { executablePath: CHROME }),
+  args: withEagerSourcePositions()
+};
 
 export interface RunnerOptions {
   chromeArgs?: string[];
@@ -41,8 +52,15 @@ export interface RunnerOptions {
   baseLibVersion?: string;
   /** 基础库解包目录，默认 ~/.wxa-runner/baselib；模拟的基础库要放到临时目录，免得污染真实缓存 */
   baseLibCacheDir?: string;
-  /** 开启 --real-login；不想依赖本机登录态时用 page.route 拦截 /__wxa__/api/* */
-  realLogin?: boolean;
+  /** 开启 --devtools-login；不想依赖本机登录态时用 page.route 拦截 /__wxa__/api/* */
+  devtoolsLogin?: boolean;
+  forwardConsole?: DevServerOptions['forwardConsole'];
+  /** 开发服务器的终端输出，默认丢弃 */
+  logger?: DevServerOptions['logger'];
+  /** 开发工具用的扩展点 */
+  extensions?: Pick<DevServerOptions, 'webviewScripts' | 'middlewares' | 'wxmlTransform'>;
+  /** web-view 的网页在新窗口打开 */
+  webViewWindow?: boolean;
 }
 
 export interface Runner {
@@ -65,12 +83,15 @@ export async function startRunner(project: Record<string, string | object> | str
     watch: false,
     baseLibVersion: options.baseLibVersion,
     baseLibCacheDir: options.baseLibCacheDir,
-    realLogin: options.realLogin,
+    devtoolsLogin: options.devtoolsLogin,
+    forwardConsole: options.forwardConsole,
+    webViewWindow: options.webViewWindow,
     runtimeDir: RUNTIME_DIR,
-    logger: { log: () => undefined, warn: () => undefined, error: () => undefined }
+    logger: options.logger ?? { log: () => undefined, warn: () => undefined, error: () => undefined },
+    ...options.extensions
   });
   const base = await server.start();
-  const browser = await chromium.launch({ ...chromeLaunchOptions, args: options.chromeArgs });
+  const browser = await chromium.launch({ ...chromeLaunchOptions, args: withEagerSourcePositions(options.chromeArgs) });
   const context = await browser.newContext({ permissions: options.permissions });
   const page = await context.newPage();
 

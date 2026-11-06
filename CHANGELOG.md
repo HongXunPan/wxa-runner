@@ -1,5 +1,127 @@
 # 更新日志
 
+## [0.12.4](https://github.com/open-wxa/wxa-runner/compare/v0.12.3...v0.12.4) (2026-11-05)
+
+
+### 问题修复
+
+* errors() 收集被基础库捕获、只打印到控制台的错误 ([#115](https://github.com/open-wxa/wxa-runner/issues/115)) ([a86384b](https://github.com/open-wxa/wxa-runner/commit/a86384b10cba16eb449007cc6e4b2de2fcd4dc6e))
+* 单上下文基础库下读到伴生 SDK 不再中断启动；云开发调用明确失败 ([#114](https://github.com/open-wxa/wxa-runner/issues/114)) ([4e420fc](https://github.com/open-wxa/wxa-runner/commit/4e420fc2fb4f68fde28f54cdc8269e46e9ed964f))
+
+## [0.12.3](https://github.com/open-wxa/wxa-runner/compare/v0.12.2...v0.12.3) (2026-11-03)
+
+
+### 问题修复
+
+* 开发服务器启动时漏编译后续写入的文件；单上下文基础库下禁用 Function 构造函数 ([#110](https://github.com/open-wxa/wxa-runner/issues/110)) ([237dceb](https://github.com/open-wxa/wxa-runner/commit/237dceb2f5fc47acf4ffa2c0321c348b89e59bb6))
+
+## [0.12.2](https://github.com/open-wxa/wxa-runner/compare/v0.12.1...v0.12.2) (2026-11-02)
+
+
+### 问题修复
+
+* 实现文件系统 rename 和 renameSync ([#106](https://github.com/open-wxa/wxa-runner/issues/106)) ([8830a42](https://github.com/open-wxa/wxa-runner/commit/8830a42e941747571a68df9ba01c9f24b697f65c))
+* 通过开发服务器转发 WebSocket 自定义请求头 ([#107](https://github.com/open-wxa/wxa-runner/issues/107)) ([09e9b64](https://github.com/open-wxa/wxa-runner/commit/09e9b6465e7b1062ccef031f150d47e629a09d38))
+
+## [0.12.1](https://github.com/open-wxa/wxa-runner/compare/v0.12.0...v0.12.1) (2026-11-01)
+
+
+### 问题修复
+
+* web-view 新窗口模式下刚打开窗口就改 src，网页偶尔停在原来的地址 ([#104](https://github.com/open-wxa/wxa-runner/issues/104)) ([9ccdf71](https://github.com/open-wxa/wxa-runner/commit/9ccdf71c396dc38a575bbf6ac8696add0fff5fe0))
+
+## [0.12.0](https://github.com/open-wxa/wxa-runner/compare/v0.11.0...v0.12.0) (2026-10-30)
+
+
+### 新功能
+
+* web-view 新增新窗口模式，和模拟器跨站的网页 Cookie 也能正常使用 ([#97](https://github.com/open-wxa/wxa-runner/issues/97)) ([05c4d44](https://github.com/open-wxa/wxa-runner/commit/05c4d44f1c24ab7fc5e1399bb718d59f0c2f65cf)), closes [#95](https://github.com/open-wxa/wxa-runner/issues/95)
+
+## [0.11.0](https://github.com/open-wxa/wxa-runner/compare/v0.10.1...v0.11.0) (2026-10-29)
+
+
+### 新功能
+
+* 新增 wxapack 查看器包，core 开放不依赖 Node 的 /web 入口 ([#89](https://github.com/open-wxa/wxa-runner/issues/89)) ([9a09d3c](https://github.com/open-wxa/wxa-runner/commit/9a09d3ca8411527ab57741c575540089af08b3f4))
+
+## [0.10.1](https://github.com/open-wxa/wxa-runner/compare/v0.10.0...v0.10.1) (2026-10-29)
+
+
+### 问题修复
+
+* 逻辑层在首页创建前报错时，提示 getCurrentPages() 是空数组 ([#90](https://github.com/open-wxa/wxa-runner/issues/90)) ([f43c003](https://github.com/open-wxa/wxa-runner/commit/f43c0039e96d4a6a84c781a27b1c30d6062ef11a))
+
+## [0.10.0](https://github.com/open-wxa/wxa-runner/compare/v0.9.0...v0.10.0) (2026-10-28)
+
+
+### 新功能
+
+* 支持开发者工具的 less / sass 编译插件（useCompilerPlugins） ([#87](https://github.com/open-wxa/wxa-runner/issues/87)) ([3a2992b](https://github.com/open-wxa/wxa-runner/commit/3a2992b48d2657f798d3675ce2a6d1d48d8d9218)), closes [#85](https://github.com/open-wxa/wxa-runner/issues/85)
+
+## [0.9.0](https://github.com/open-wxa/wxa-runner/compare/v0.8.2...v0.9.0) (2026-10-27)
+
+
+### 新功能
+
+* 开发服务器扩展（extensions / --extension），开放 webviewScripts、middlewares、wxmlTransform 扩展点 ([#78](https://github.com/open-wxa/wxa-runner/issues/78)) ([5045160](https://github.com/open-wxa/wxa-runner/commit/5045160ab857037899f49da97515a28a91fa6d92))
+
+
+### 问题修复
+
+* 别的进程监听所有地址时，监听 localhost 也换用空闲端口 ([#82](https://github.com/open-wxa/wxa-runner/issues/82)) ([1c001a2](https://github.com/open-wxa/wxa-runner/commit/1c001a234c317c9ad5302c11afe51c1197ba7209))
+
+## [0.8.2](https://github.com/open-wxa/wxa-runner/compare/v0.8.1...v0.8.2) (2026-10-26)
+
+
+### 其他
+
+* 内置基础库改为从 npm 安装 ([#80](https://github.com/open-wxa/wxa-runner/issues/80)) ([57af9dd](https://github.com/open-wxa/wxa-runner/commit/57af9ddd342baea0f3aa354d299b76c14a4c6c96))
+
+## [0.8.1](https://github.com/open-wxa/wxa-runner/compare/v0.8.0...v0.8.1) (2026-10-24)
+
+
+### 问题修复
+
+* 实现 wx.hideTabBar / showTabBar 和 tabBar 徽标、红点、样式、文字的修改 ([#76](https://github.com/open-wxa/wxa-runner/issues/76)) ([be01f8e](https://github.com/open-wxa/wxa-runner/commit/be01f8eda0c37ba16c8374dd7dbe9b9e44e8743f)), closes [#75](https://github.com/open-wxa/wxa-runner/issues/75)
+* 组件引用在编译时解析成组件路径，按包名引用的 npm 组件和省略 /index 的目录组件能渲染 ([#74](https://github.com/open-wxa/wxa-runner/issues/74)) ([e781937](https://github.com/open-wxa/wxa-runner/commit/e7819374bcd9ffe6d3b4e1af2f1319ccdc3efd8e)), closes [#73](https://github.com/open-wxa/wxa-runner/issues/73)
+
+## [0.8.0](https://github.com/open-wxa/wxa-runner/compare/v0.7.0...v0.8.0) (2026-10-23)
+
+
+### 新功能
+
+* Network 面板里显示请求的原地址，被拦截的请求也能看到 ([#72](https://github.com/open-wxa/wxa-runner/issues/72)) ([01d584f](https://github.com/open-wxa/wxa-runner/commit/01d584f3790595f71c9bb3932d6370d9402379fc))
+* 报错转发到终端，默认端口被占用时自动换端口，--host 开放局域网访问 ([#65](https://github.com/open-wxa/wxa-runner/issues/65)) ([e189f98](https://github.com/open-wxa/wxa-runner/commit/e189f98478a3acd5f5424cb03448c54172da6f8d))
+
+
+### 问题修复
+
+* 下载文件支持二进制读取和用户目录复制 ([#71](https://github.com/open-wxa/wxa-runner/issues/71)) ([c398e73](https://github.com/open-wxa/wxa-runner/commit/c398e73bef1d383137fb5938a6f1dc515f8e5b1b))
+* 在低于 18 的 Node.js 上运行命令行时直接退出，说明要求的版本和怎么切换 ([#66](https://github.com/open-wxa/wxa-runner/issues/66)) ([45edad9](https://github.com/open-wxa/wxa-runner/commit/45edad9d988a878e5c3e80c4947720400178ac63))
+* 流式转发 wx.request 分块并传播请求取消 ([#69](https://github.com/open-wxa/wxa-runner/issues/69)) ([2e0d794](https://github.com/open-wxa/wxa-runner/commit/2e0d79417a6ee29f3fd81a7a0c402ac6635f5d09))
+
+## [0.7.0](https://github.com/open-wxa/wxa-runner/compare/v0.6.0...v0.7.0) (2026-10-22)
+
+
+### 新功能
+
+* --real-login 时真实调用服务市场 wx.serviceMarket ([#60](https://github.com/open-wxa/wxa-runner/issues/60)) ([8caced3](https://github.com/open-wxa/wxa-runner/commit/8caced388545bc00c00ac84e066b2bdd815a0a26))
+* 支持插件页面（plugin://），--real-login 改名为 --devtools-login ([#62](https://github.com/open-wxa/wxa-runner/issues/62)) ([c2acebc](https://github.com/open-wxa/wxa-runner/commit/c2acebc9f58893100a9188f58f22ca0c17855bc9))
+
+## [0.6.0](https://github.com/open-wxa/wxa-runner/compare/v0.5.0...v0.6.0) (2026-10-22)
+
+
+### 新功能
+
+* 支持 Worker（wx.createWorker） ([#59](https://github.com/open-wxa/wxa-runner/issues/59)) ([f89bf3a](https://github.com/open-wxa/wxa-runner/commit/f89bf3aed0d3899d907c341399f601e2ddb252fa)), closes [#55](https://github.com/open-wxa/wxa-runner/issues/55)
+
+## [0.5.0](https://github.com/open-wxa/wxa-runner/compare/v0.4.1...v0.5.0) (2026-10-20)
+
+
+### 新功能
+
+* 原生组件与 API 向开发者工具看齐（选视频、画布、picker、swiper 拖动） ([#51](https://github.com/open-wxa/wxa-runner/issues/51)) ([4ea9be2](https://github.com/open-wxa/wxa-runner/commit/4ea9be24e9c55f5868c73cab2fcd6a257c6ca48d))
+
 ## [0.4.1](https://github.com/open-wxa/wxa-runner/compare/v0.4.0...v0.4.1) (2026-10-20)
 
 

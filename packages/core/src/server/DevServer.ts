@@ -46,7 +46,7 @@ import { ignoreConsoleHook, printBrowserReports } from './forwardConsole';
 import { handleProxy } from './proxy';
 import { createSocketProxy } from './socketProxy';
 import { planHotUpdate } from './hmr';
-import { developerTicketSource, TicketSource } from './developerTicket';
+import { DevtoolsSession, devtoolsSession, TicketNotAllowed, TicketSource } from './developerTicket';
 import { AppBuild, PluginStore } from './plugins';
 import { devtoolsLoginRouter } from './devtoolsLogin';
 import { requireUsableTicket, WechatDevClient } from './wechatDev';
@@ -91,6 +91,8 @@ export interface DevServerOptions {
   baseLibCacheDir?: string;
   watch?: boolean;
   device?: Partial<DeviceProfile>;
+  /** navigateTo / navigateBack 时滑动页面内容，默认 false */
+  pageTransition?: boolean;
   /**
    * 小程序启动前执行的 setup 文件；默认使用项目目录下的 wxa.setup.ts / .js / .mjs，传 false 不使用
    * 环境变量在构造时读取，只暴露 WXA_ 前缀的变量
@@ -103,8 +105,6 @@ export interface DevServerOptions {
    * 要先登录开发者工具，会真实请求微信
    */
   devtoolsLogin?: boolean;
-  /** @deprecated 改名为 devtoolsLogin */
-  realLogin?: boolean;
   /**
    * 把浏览器里的报错打印到终端：'errors' 转发运行时错误和未实现 API 的提醒，'all' 再加上 console.warn / console.error。
    * 默认不转发；命令行默认 'errors'，检测到编程助手时 'all'
@@ -155,6 +155,7 @@ export class DevServer {
   private readonly fileSessions = new Map<string, FileStore>();
   private readonly devtoolsLogin: boolean;
   /** 开启 --devtools-login 时才有 */
+  private readonly devtools: DevtoolsSession | null;
   private readonly ticketSource: TicketSource | null;
   private readonly plugins: PluginStore;
 
@@ -179,11 +180,9 @@ export class DevServer {
     if (!this.baseLib.compatible) {
       this.logger.warn(`[wxa-runner] 基础库 ${this.baseLib.version} 高于已验证的版本范围，可能无法正常运行`);
     }
-    if (options.realLogin !== undefined && options.devtoolsLogin === undefined) {
-      this.logger.warn('[wxa-runner] realLogin（--real-login）已改名为 devtoolsLogin（--devtools-login），旧名以后会移除');
-    }
-    this.devtoolsLogin = (options.devtoolsLogin ?? options.realLogin) === true;
-    this.ticketSource = this.devtoolsLogin ? developerTicketSource(this.project.projectPath, this.logger) : null;
+    this.devtoolsLogin = options.devtoolsLogin === true;
+    this.devtools = this.devtoolsLogin ? devtoolsSession(this.project.projectPath, this.logger) : null;
+    this.ticketSource = this.devtools?.findTicket ?? null;
     this.plugins = new PluginStore(this.ticketSource && new WechatDevClient(this.project.appid, this.ticketSource), this.logger);
     this.device = { ...DEFAULT_DEVICE, ...options.device };
     this.builder = new AppBuilder(this.project, { wxmlTransform: extended.wxmlTransform });
@@ -258,7 +257,11 @@ export class DevServer {
     // 启动时先取一次：新版开发者工具要先为项目开启自动化接口，第一次 wx.login 就不用等；不可用时在终端提示原因
     this.ticketSource?.()
       .then(requireUsableTicket)
-      .catch(error => this.logger.warn(`[wxa-runner] 开发者工具的登录态暂不可用（--devtools-login）：${error.message}`));
+      .catch(error => {
+        // 微信后台不给这个 appid 票据时取不到是常态，wx.login 会退回模拟器并在那时提示一次，不必报成「暂不可用」
+        if (error instanceof TicketNotAllowed && this.devtools?.loginCode) return;
+        this.logger.warn(`[wxa-runner] 开发者工具的登录态暂不可用（--devtools-login）：${error.message}`);
+      });
     return this.address;
   }
 
@@ -303,6 +306,7 @@ export class DevServer {
         appid: this.project.appid,
         baseLibVersion: this.baseLib.version,
         device: this.device,
+        pageTransition: this.options.pageTransition ?? false,
         devtoolsLogin: this.devtoolsLogin,
         socketProxy: true,
         forwardConsole: this.options.forwardConsole ?? false,
@@ -463,7 +467,7 @@ export class DevServer {
       }
     });
 
-    if (this.ticketSource) app.use('/__wxa__/api', devtoolsLoginRouter(this.project.appid, this.ticketSource));
+    if (this.devtools) app.use('/__wxa__/api', devtoolsLoginRouter(this.project.appid, this.devtools.findTicket, this.devtools.loginCode));
 
     // 渲染层页面路径下的相对资源（如 ../../images/a.png）
     app.use('/__wxa__/webview', express.static(root));
